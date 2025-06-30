@@ -28,6 +28,11 @@ once_cell = "1.17.1"
 # Cross-platform audio capture
 cpal = { git = "https://github.com/Kree0/cpal.git", branch = "master" }
 
+# Zero-copy IPC for Sprint 4 optimization
+shared_memory = "0.12"
+memmap2 = "0.5"
+interprocess = "1.2"
+
 # Wav encoding
 hound = "3.5"
 

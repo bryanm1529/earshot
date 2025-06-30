@@ -236,3 +236,48 @@ The backend runs two services:
   - Ensure all dependencies (CMake, C++ compiler) are installed
   - Check if git submodules are properly initialized
   - Verify you have write permissions in the directory
+
+## Sprint 7: Final Integration - Environment Variables
+
+The Cognitive Engine (`brain.py`) supports the following configuration options:
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `COPILOT_ADVISOR_MODEL` | `llama3:8b` | Ollama model for real-time question answering |
+| `COPILOT_CHRONICLER_ENABLED` | `true` | Enable/disable context management system |
+
+### Example Usage
+
+```bash
+# Use a faster model for better performance
+export COPILOT_ADVISOR_MODEL="phi3:mini"
+
+# Disable context management for testing
+export COPILOT_CHRONICLER_ENABLED="false"
+
+# Start the cognitive engine
+python3 brain.py --debug
+```
+
+### Configuration Verification
+
+On startup, the brain.py script logs the effective configuration:
+
+```
+🔧 Config: Advisor model=llama3:8b, Chronicler=ENABLED
+```
+
+### Performance Targets
+
+- **Response Time**: Target <300ms for CI, <700ms for end-to-end
+- **Accuracy**: >50% keyword match rate
+- **Reliability**: >80% successful response rate
+
+### Integration Status
+
+✅ **Ollama Integration**: Real LLM responses with bullet-point formatting
+✅ **WebSocket Resilience**: Exponential backoff reconnection to Whisper server
+✅ **Context Management**: Rolling conversation history with stale data prevention
+✅ **Performance Validation**: Automated CI gate tests with latency monitoring

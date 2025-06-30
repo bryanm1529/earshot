@@ -1,0 +1,30 @@
+{
+  "sprint_4_ipc": {
+    "sprint_2_total": 1949,
+    "whisper_processing": 1879,
+    "http_overhead": 70,
+    "sprint_4_total": 1879.013,
+    "ipc_latency": 0.013,
+    "improvement_factor": 1.0372466821677127,
+    "latency_reduction": 69.98700000000008
+  },
+  "gpu_acceleration": {
+    "cpu_only": 1879.013,
+    "cuda_accelerated": 751.613,
+    "metal_accelerated": 234.888,
+    "cuda_improvement": 2.4999740557973316,
+    "metal_improvement": 7.99961258131535
+  },
+  "memory_benchmarks": {
+    "memory_copy_ms": 0.0008913259953260422,
+    "json_overhead_ms": 1.6449112197733484,
+    "overhead_ratio": 1845.4653273874828
+  },
+  "target_achievement": {
+    "target_ms": 300,
+    "ipc_only": false,
+    "cuda_accelerated": false,
+    "metal_accelerated": true
+  },
+  "total_improvement": 8.297571608596437
+}

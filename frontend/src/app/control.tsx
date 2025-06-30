@@ -4,14 +4,12 @@ import { useState, useEffect } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { invoke } from '@tauri-apps/api/core';
-import { WhisperConnection } from '@/components/WhisperConnection';
 
 interface TranscriptionStats {
   isConnected: boolean;
   latency: number;
   wordsPerMinute: number;
   accuracy: number;
-  systemAudioDevice?: string;
 }
 
 export default function ControlPanel() {
@@ -24,11 +22,9 @@ export default function ControlPanel() {
     accuracy: 0
   });
   const [hudWindow, setHudWindow] = useState<WebviewWindow | null>(null);
-  const [systemAudioError, setSystemAudioError] = useState<string | null>(null);
 
   useEffect(() => {
     checkWhisperConnection();
-    checkSystemAudioDevice();
     const interval = setInterval(checkWhisperConnection, 5000);
     return () => clearInterval(interval);
   }, []);
@@ -39,19 +35,6 @@ export default function ControlPanel() {
       setStats(prev => ({ ...prev, isConnected: response.ok }));
     } catch (error) {
       setStats(prev => ({ ...prev, isConnected: false }));
-    }
-  };
-
-  const checkSystemAudioDevice = async () => {
-    try {
-      const device = await invoke<string>('check_system_audio_device');
-      setStats(prev => ({ ...prev, systemAudioDevice: device }));
-      setSystemAudioError(null);
-      console.log('System audio device available:', device);
-    } catch (error) {
-      const errorMessage = typeof error === 'string' ? error : 'Unknown error';
-      setSystemAudioError(errorMessage);
-      console.error('System audio device check failed:', error);
     }
   };
 
@@ -89,62 +72,31 @@ export default function ControlPanel() {
     }
   };
 
-    const handleTranscription = (words: string[], confidence: number) => {
-    // Forward transcription to HUD window
-    if (hudWindow) {
-      hudWindow.emit('transcription-data', { words, confidence });
-    }
-  };
-
-  const handleLatencyUpdate = (latency: number) => {
-    setStats(prev => ({ ...prev, latency }));
-  };
-
-  const handleTranscriptionError = (error: string) => {
-    console.error('Transcription error:', error);
-    setIsRecording(false);
-  };
-
   const startRecording = async () => {
     try {
-      console.log('Starting native system audio capture...');
-
-      // Start native audio capture
-      await invoke('start_native_audio_capture');
+      // Start audio capture and transcription
       setIsRecording(true);
-      setSystemAudioError(null);
 
       // If HUD is visible, notify it to start displaying transcriptions
       if (hudWindow) {
         await hudWindow.emit('start-transcription', {});
       }
-
-      console.log('Native audio capture started successfully');
     } catch (error) {
       console.error('Failed to start recording:', error);
-      const errorMessage = typeof error === 'string' ? error : 'Failed to start system audio capture';
-      setSystemAudioError(errorMessage);
       setIsRecording(false);
     }
   };
 
   const stopRecording = async () => {
     try {
-      console.log('Stopping native system audio capture...');
-
-      // Stop native audio capture
-      await invoke('stop_native_audio_capture');
       setIsRecording(false);
 
       // Notify HUD to stop
       if (hudWindow) {
         await hudWindow.emit('stop-transcription', {});
       }
-
-      console.log('Native audio capture stopped successfully');
     } catch (error) {
       console.error('Failed to stop recording:', error);
-      setIsRecording(false); // Set to false regardless
     }
   };
 
@@ -154,7 +106,7 @@ export default function ControlPanel() {
         {/* Header */}
         <div className="text-center">
           <h1 className="text-2xl font-bold mb-2">Earshot</h1>
-          <p className="text-gray-400">Real-time System Audio Transcription</p>
+          <p className="text-gray-400">Real-time Transcription HUD</p>
         </div>
 
         {/* Connection Status */}
@@ -166,31 +118,6 @@ export default function ControlPanel() {
           <div className="text-xs text-gray-400">
             {stats.isConnected ? 'Connected to localhost:8080' : 'Disconnected - Check backend'}
           </div>
-        </div>
-
-        {/* System Audio Status */}
-        <div className="bg-gray-800 rounded-lg p-4">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-sm font-medium">System Audio Device</span>
-            <div className={`w-3 h-3 rounded-full ${stats.systemAudioDevice ? 'bg-green-500' : 'bg-red-500'}`} />
-          </div>
-          {stats.systemAudioDevice ? (
-            <div className="text-xs text-gray-400">
-              ✓ {stats.systemAudioDevice}
-            </div>
-          ) : (
-            <div className="text-xs text-red-400">
-              {systemAudioError || 'No system audio device found'}
-            </div>
-          )}
-          {!stats.systemAudioDevice && (
-            <button
-              onClick={checkSystemAudioDevice}
-              className="mt-2 text-xs bg-blue-600 hover:bg-blue-700 px-2 py-1 rounded"
-            >
-              Retry Detection
-            </button>
-          )}
         </div>
 
         {/* HUD Controls */}
@@ -210,34 +137,22 @@ export default function ControlPanel() {
 
         {/* Recording Controls */}
         <div className="bg-gray-800 rounded-lg p-4">
-          <h3 className="text-sm font-medium mb-3">System Audio Capture</h3>
+          <h3 className="text-sm font-medium mb-3">Transcription</h3>
           <button
             onClick={isRecording ? stopRecording : startRecording}
-            disabled={!stats.isConnected || !stats.systemAudioDevice}
+            disabled={!stats.isConnected}
             className={`w-full py-3 px-4 rounded-md font-medium transition-colors ${
               isRecording
                 ? 'bg-red-600 hover:bg-red-700'
                 : 'bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed'
             }`}
           >
-            {isRecording ? '⏹ Stop Capture' : '🎧 Start System Audio Capture'}
+            {isRecording ? '⏹ Stop Recording' : '🎤 Start Recording'}
           </button>
 
           {!stats.isConnected && (
             <p className="text-xs text-red-400 mt-2">
-              Whisper backend required for transcription
-            </p>
-          )}
-
-          {!stats.systemAudioDevice && (
-            <p className="text-xs text-red-400 mt-2">
-              System audio device required (BlackHole on macOS)
-            </p>
-          )}
-
-          {systemAudioError && (
-            <p className="text-xs text-red-400 mt-2">
-              {systemAudioError}
+              Whisper backend required for recording
             </p>
           )}
         </div>
@@ -252,8 +167,8 @@ export default function ControlPanel() {
                 <div className="font-mono">{stats.latency}ms</div>
               </div>
               <div>
-                <div className="text-gray-400">Audio Source</div>
-                <div className="font-mono text-xs">System</div>
+                <div className="text-gray-400">WPM</div>
+                <div className="font-mono">{stats.wordsPerMinute}</div>
               </div>
             </div>
           </div>
@@ -280,9 +195,8 @@ export default function ControlPanel() {
 
         {/* Footer */}
         <div className="text-center text-xs text-gray-500">
-          <p>Sprint 3: Native System Audio Capture</p>
+          <p>Sprint 2: Real-time HUD Implementation</p>
           <p>Backend: {stats.isConnected ? 'Ready' : 'Waiting...'}</p>
-          <p>Audio: {stats.systemAudioDevice ? 'Ready' : 'Setup Required'}</p>
         </div>
       </div>
     </div>

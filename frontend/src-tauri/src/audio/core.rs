@@ -1,4 +1,4 @@
-use super::audio_processing::audio_to_mono; 
+use super::audio_processing::audio_to_mono;
 use anyhow::{anyhow, Result};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::StreamError;
@@ -117,11 +117,11 @@ pub fn parse_audio_device(name: &str) -> Result<AudioDevice> {
 #[cfg(target_os = "windows")]
 fn configure_windows_audio(host: &cpal::Host) -> Result<Vec<AudioDevice>> {
     let mut devices = Vec::new();
-    
+
     // Get WASAPI devices
     if let Ok(wasapi_host) = cpal::host_from_id(cpal::HostId::Wasapi) {
         info!("Using WASAPI host for Windows audio device enumeration");
-        
+
         // Add output devices (including loopback)
         if let Ok(output_devices) = wasapi_host.output_devices() {
             for device in output_devices {
@@ -149,7 +149,7 @@ fn configure_windows_audio(host: &cpal::Host) -> Result<Vec<AudioDevice>> {
     } else {
         warn!("Failed to create WASAPI host, falling back to default host");
     }
-    
+
     // If WASAPI failed or returned no devices, try default host as fallback
     if devices.is_empty() {
         debug!("WASAPI device enumeration failed or returned no devices, falling back to default host");
@@ -177,11 +177,11 @@ fn configure_windows_audio(host: &cpal::Host) -> Result<Vec<AudioDevice>> {
             warn!("Failed to enumerate output devices from default host");
         }
     }
-    
+
     // If we still have no devices, add default devices
     if devices.is_empty() {
         warn!("No audio devices found, adding default devices only");
-        
+
         // Try to add default input device
         if let Some(device) = host.default_input_device() {
             if let Ok(name) = device.name() {
@@ -189,7 +189,7 @@ fn configure_windows_audio(host: &cpal::Host) -> Result<Vec<AudioDevice>> {
                 devices.push(AudioDevice::new(name, DeviceType::Input));
             }
         }
-        
+
         // Try to add default output device
         if let Some(device) = host.default_output_device() {
             if let Ok(name) = device.name() {
@@ -198,7 +198,7 @@ fn configure_windows_audio(host: &cpal::Host) -> Result<Vec<AudioDevice>> {
             }
         }
     }
-    
+
     info!("Found {} Windows audio devices", devices.len());
     Ok(devices)
 }
@@ -206,14 +206,14 @@ fn configure_windows_audio(host: &cpal::Host) -> Result<Vec<AudioDevice>> {
 #[cfg(target_os = "linux")]
 fn configure_linux_audio(host: &cpal::Host) -> Result<Vec<AudioDevice>> {
     let mut devices = Vec::new();
-    
+
     // Add input devices
     for device in host.input_devices()? {
         if let Ok(name) = device.name() {
             devices.push(AudioDevice::new(name, DeviceType::Input));
         }
     }
-    
+
     // Add PulseAudio monitor sources for system audio
     if let Ok(pulse_host) = cpal::host_from_id(cpal::HostId::Pulse) {
         for device in pulse_host.input_devices()? {
@@ -228,7 +228,7 @@ fn configure_linux_audio(host: &cpal::Host) -> Result<Vec<AudioDevice>> {
             }
         }
     }
-    
+
     Ok(devices)
 }
 
@@ -303,6 +303,11 @@ pub fn default_input_device() -> Result<AudioDevice> {
 }
 
 pub fn default_output_device() -> Result<AudioDevice> {
+    // Try to get system audio loopback device first
+    if let Ok(system_device) = get_system_audio_device() {
+        return Ok(system_device);
+    }
+
     #[cfg(target_os = "macos")]
     {
         // ! see https://github.com/RustAudio/cpal/pull/894
@@ -345,6 +350,102 @@ pub fn default_output_device() -> Result<AudioDevice> {
             .default_output_device()
             .ok_or_else(|| anyhow!("No default output device found"))?;
         return Ok(AudioDevice::new(device.name()?, DeviceType::Output));
+    }
+}
+
+/// Get the system audio loopback device (BlackHole on macOS, Virtual Cable on Windows, etc.)
+/// This is the primary function for capturing system audio instead of microphone
+pub fn get_system_audio_device() -> Result<AudioDevice> {
+    info!("Searching for system audio loopback device...");
+
+    #[cfg(target_os = "macos")]
+    {
+        let host = cpal::default_host();
+
+        // First priority: BlackHole 2ch (exact match)
+        if let Ok(devices) = host.input_devices() {
+            for device in devices {
+                if let Ok(name) = device.name() {
+                    if name == "BlackHole 2ch" {
+                        info!("Found BlackHole 2ch device for system audio capture");
+                        return Ok(AudioDevice::new(name, DeviceType::Output));
+                    }
+                }
+            }
+        }
+
+        // Second priority: Any BlackHole device
+        if let Ok(devices) = host.input_devices() {
+            for device in devices {
+                if let Ok(name) = device.name() {
+                    if name.to_lowercase().contains("blackhole") {
+                        info!("Found BlackHole device: {}", name);
+                        return Ok(AudioDevice::new(name, DeviceType::Output));
+                    }
+                }
+            }
+        }
+
+        // Third priority: ScreenCaptureKit (for macOS system audio)
+        if let Ok(screen_host) = cpal::host_from_id(cpal::HostId::ScreenCaptureKit) {
+            if let Ok(devices) = screen_host.input_devices() {
+                for device in devices {
+                    if let Ok(name) = device.name() {
+                        info!("Found ScreenCaptureKit device: {}", name);
+                        return Ok(AudioDevice::new(name, DeviceType::Output));
+                    }
+                }
+            }
+        }
+
+        return Err(anyhow!("No system audio loopback device found. Please install BlackHole: https://github.com/ExistentialAudio/BlackHole"));
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // For Windows, look for stereo mix or virtual audio cable
+        if let Ok(wasapi_host) = cpal::host_from_id(cpal::HostId::Wasapi) {
+            if let Ok(devices) = wasapi_host.input_devices() {
+                for device in devices {
+                    if let Ok(name) = device.name() {
+                        let name_lower = name.to_lowercase();
+                        if name_lower.contains("stereo mix") ||
+                           name_lower.contains("what u hear") ||
+                           name_lower.contains("virtual audio cable") ||
+                           name_lower.contains("vb-cable") {
+                            info!("Found Windows system audio device: {}", name);
+                            return Ok(AudioDevice::new(name, DeviceType::Output));
+                        }
+                    }
+                }
+            }
+        }
+
+        return Err(anyhow!("No system audio loopback device found. Please enable 'Stereo Mix' or install VB-Audio Virtual Cable"));
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        // For Linux, look for PulseAudio monitor sources
+        if let Ok(pulse_host) = cpal::host_from_id(cpal::HostId::Pulse) {
+            if let Ok(devices) = pulse_host.input_devices() {
+                for device in devices {
+                    if let Ok(name) = device.name() {
+                        if name.contains("monitor") && !name.contains("microphone") {
+                            info!("Found Linux system audio monitor: {}", name);
+                            return Ok(AudioDevice::new(name, DeviceType::Output));
+                        }
+                    }
+                }
+            }
+        }
+
+        return Err(anyhow!("No PulseAudio monitor source found for system audio capture"));
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        return Err(anyhow!("System audio capture not supported on this platform"));
     }
 }
 
@@ -400,7 +501,7 @@ impl AudioStream {
         info!("Initializing audio stream for device: {}", device.to_string());
         let (tx, _) = broadcast::channel::<Vec<f32>>(1000);
         let tx_clone = tx.clone();
-        
+
         // Get device and config with improved error handling
         let (cpal_audio_device, config) = match get_device_and_config(&device).await {
             Ok((device, config)) => {
@@ -412,18 +513,18 @@ impl AudioStream {
                 return Err(anyhow!("Failed to initialize audio device: {}", e));
             }
         };
-        
+
         // Verify we can actually get input config for input devices
         if device.device_type == DeviceType::Input {
             match cpal_audio_device.default_input_config() {
                 Ok(conf) => info!("Default input config: {:?}", conf),
                 Err(e) => {
                     error!("Failed to get default input config: {}", e);
-                    
+
                     // On Windows, we might still be able to use the device with our custom config
                     #[cfg(not(target_os = "windows"))]
                     return Err(anyhow!("Failed to get default input config: {}", e));
-                    
+
                     #[cfg(target_os = "windows")]
                     {
                         warn!("Continuing with custom config despite default config error on Windows");
@@ -447,9 +548,9 @@ impl AudioStream {
 
             }
         }
-        
+
         let channels = config.channels();
-        info!("Audio config - Sample rate: {}, Channels: {}, Format: {:?}", 
+        info!("Audio config - Sample rate: {}, Channels: {}, Format: {:?}",
             config.sample_rate().0, channels, config.sample_format());
 
         let is_running_weak_2 = Arc::downgrade(&is_running);
@@ -480,7 +581,7 @@ impl AudioStream {
                         .unwrap();
 
                     is_disconnected_clone.store(true, Ordering::Relaxed);
-                } else if err.to_string().to_lowercase().contains("permission denied") || 
+                } else if err.to_string().to_lowercase().contains("permission denied") ||
                          err.to_string().to_lowercase().contains("access denied") {
                     error!("Permission denied for audio device {}. Please check microphone permissions.", device_name_clone);
                     if let Some(arc) = is_running_weak_2.upgrade() {
@@ -627,7 +728,7 @@ impl AudioStream {
     pub async fn stop(&self) -> Result<()> {
         // Mark as disconnected first
         self.is_disconnected.store(true, Ordering::Release);
-        
+
         // Send stop signal and wait for confirmation
         let (tx, _rx) = oneshot::channel();
         self.stream_control.send(StreamControl::Stop(tx))?;
@@ -666,7 +767,7 @@ fn get_windows_device(audio_device: &AudioDevice) -> Result<(cpal::Device, cpal:
     } else {
         &audio_device.name
     };
-    
+
     info!("Looking for Windows device with base name: {}", base_name);
 
     match audio_device.device_type {
@@ -677,7 +778,7 @@ fn get_windows_device(audio_device: &AudioDevice) -> Result<(cpal::Device, cpal:
                     // Check if the device name contains our base name
                     if name == base_name || name.contains(base_name) {
                         info!("Found matching input device: {}", name);
-                        
+
                         // Try to get default input config with better error logging
                         match device.default_input_config() {
                             Ok(default_config) => {
@@ -686,7 +787,7 @@ fn get_windows_device(audio_device: &AudioDevice) -> Result<(cpal::Device, cpal:
                             },
                             Err(e) => {
                                 warn!("Failed to get default input config: {}. Trying supported configs...", e);
-                                
+
                                 // Try to find a supported configuration
                                 if let Ok(supported_configs) = device.supported_input_configs() {
                                     let mut configs: Vec<_> = supported_configs.collect();
@@ -694,7 +795,7 @@ fn get_windows_device(audio_device: &AudioDevice) -> Result<(cpal::Device, cpal:
                                         warn!("No supported input configurations found for device: {}", name);
                                     } else {
                                         info!("Found {} supported input configurations", configs.len());
-                                        
+
                                         // First try to find F32 format with 2 channels (stereo)
                                         for config in &configs {
                                             if config.sample_format() == cpal::SampleFormat::F32 && config.channels() == 2 {
@@ -703,7 +804,7 @@ fn get_windows_device(audio_device: &AudioDevice) -> Result<(cpal::Device, cpal:
                                                 return Ok((device, config));
                                             }
                                         }
-                                        
+
                                         // Then try any F32 format
                                         for config in &configs {
                                             if config.sample_format() == cpal::SampleFormat::F32 {
@@ -712,7 +813,7 @@ fn get_windows_device(audio_device: &AudioDevice) -> Result<(cpal::Device, cpal:
                                                 return Ok((device, config));
                                             }
                                         }
-                                        
+
                                         // Finally, use the first available config
                                         let config = configs[0].with_max_sample_rate();
                                         info!("Using fallback input config: {:?}", config);
@@ -721,14 +822,14 @@ fn get_windows_device(audio_device: &AudioDevice) -> Result<(cpal::Device, cpal:
                                 } else {
                                     warn!("Could not enumerate supported configurations for device: {}", name);
                                 }
-                                
+
                                 return Err(anyhow!("No compatible input configuration found for device: {}", name));
                             }
                         }
                     }
                 }
             }
-            
+
             // If we didn't find a matching device, try the default input device as fallback
             info!("No matching input device found, trying default input device");
             if let Some(default_device) = wasapi_host.default_input_device() {
@@ -751,7 +852,7 @@ fn get_windows_device(audio_device: &AudioDevice) -> Result<(cpal::Device, cpal:
                     // Check if the device name contains our base name
                     if name == base_name || name.contains(base_name) {
                         info!("Found matching output device: {}", name);
-                        
+
                         // For output devices, we want to use them in loopback mode
                         if let Ok(supported_configs) = device.supported_output_configs() {
                             let mut configs: Vec<_> = supported_configs.collect();
@@ -759,7 +860,7 @@ fn get_windows_device(audio_device: &AudioDevice) -> Result<(cpal::Device, cpal:
                                 warn!("No supported output configurations found for device: {}", name);
                             } else {
                                 info!("Found {} supported output configurations", configs.len());
-                                
+
                                 // Try to find a config that supports f32 format with 2 channels (stereo)
                                 for config in &configs {
                                     if config.sample_format() == cpal::SampleFormat::F32 && config.channels() == 2 {
@@ -768,7 +869,7 @@ fn get_windows_device(audio_device: &AudioDevice) -> Result<(cpal::Device, cpal:
                                         return Ok((device, config));
                                     }
                                 }
-                                
+
                                 // Then try any F32 format
                                 for config in &configs {
                                     if config.sample_format() == cpal::SampleFormat::F32 {
@@ -777,7 +878,7 @@ fn get_windows_device(audio_device: &AudioDevice) -> Result<(cpal::Device, cpal:
                                         return Ok((device, config));
                                     }
                                 }
-                                
+
                                 // Finally, use the first available config
                                 let config = configs[0].with_max_sample_rate();
                                 info!("Using fallback output config: {:?}", config);
@@ -786,7 +887,7 @@ fn get_windows_device(audio_device: &AudioDevice) -> Result<(cpal::Device, cpal:
                         } else {
                             warn!("Could not enumerate supported configurations for device: {}", name);
                         }
-                        
+
                         // If we couldn't get supported configs, try default
                         if let Ok(default_config) = device.default_output_config() {
                             info!("Using default output config: {:?}", default_config);
@@ -795,7 +896,7 @@ fn get_windows_device(audio_device: &AudioDevice) -> Result<(cpal::Device, cpal:
                     }
                 }
             }
-            
+
             // If we didn't find a matching device, try the default output device as fallback
             info!("No matching output device found, trying default output device");
             if let Some(default_device) = wasapi_host.default_output_device() {
@@ -827,7 +928,7 @@ pub async fn get_device_and_config(
     #[cfg(not(target_os = "windows"))]
     {
         let host = cpal::default_host();
-        
+
         match audio_device.device_type {
             DeviceType::Input => {
                 for device in host.input_devices()? {
@@ -876,7 +977,7 @@ pub async fn get_device_and_config(
                 }
             }
         }
-        
+
         Err(anyhow!("Device not found: {}", audio_device.name))
     }
 }

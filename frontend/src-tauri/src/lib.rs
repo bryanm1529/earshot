@@ -6,11 +6,13 @@ use serde::{Deserialize, Serialize};
 // Declare audio module
 pub mod audio;
 pub mod ollama;
+pub mod ipc;
 
 use audio::{
     default_input_device, default_output_device, AudioStream,
-    encode_single_audio,
+    encode_single_audio, get_system_audio_device,
 };
+use ipc::ZeroCopyIPC;
 use ollama::{OllamaModel};
 use tauri::{Runtime, AppHandle, Emitter};
 use log::{info as log_info, error as log_error, debug as log_debug};
@@ -80,7 +82,7 @@ impl TranscriptAccumulator {
 
     fn add_segment(&mut self, segment: &TranscriptSegment) -> Option<TranscriptUpdate> {
         log_info!("Processing new transcript segment: {:?}", segment);
-        
+
         // Update the last update time
         self.last_update_time = std::time::Instant::now();
 
@@ -90,7 +92,7 @@ impl TranscriptAccumulator {
             .replace("[AUDIO OUT]", "")
             .trim()
             .to_string();
-            
+
         if !clean_text.is_empty() {
             log_info!("Clean transcript text: {}", clean_text);
         }
@@ -141,7 +143,7 @@ impl TranscriptAccumulator {
     }
 
     fn check_timeout(&mut self) -> Option<TranscriptUpdate> {
-        if !self.current_sentence.is_empty() && 
+        if !self.current_sentence.is_empty() &&
            self.last_update_time.elapsed() > Duration::from_millis(SENTENCE_TIMEOUT_MS) {
             let sentence = std::mem::take(&mut self.current_sentence);
             let current_time = self.sentence_start_time + (SENTENCE_TIMEOUT_MS as f32 / 1000.0);
@@ -159,7 +161,7 @@ impl TranscriptAccumulator {
 
 async fn send_audio_chunk(chunk: Vec<f32>, client: &reqwest::Client) -> Result<TranscriptResponse, String> {
     log_debug!("Preparing to send audio chunk of size: {}", chunk.len());
-    
+
     // Convert f32 samples to bytes
     let bytes: Vec<u8> = chunk.iter()
         .flat_map(|&sample| {
@@ -167,7 +169,7 @@ async fn send_audio_chunk(chunk: Vec<f32>, client: &reqwest::Client) -> Result<T
             clamped.to_le_bytes().to_vec()
         })
         .collect();
-    
+
     // Retry configuration
     let max_retries = 3;
     let mut retry_count = 0;
@@ -177,7 +179,7 @@ async fn send_audio_chunk(chunk: Vec<f32>, client: &reqwest::Client) -> Result<T
         if retry_count > 0 {
             // Exponential backoff: wait 2^retry_count * 100ms
             let delay = Duration::from_millis(100 * (2_u64.pow(retry_count as u32)));
-            log::info!("Retry attempt {} of {}. Waiting {:?} before retry...", 
+            log::info!("Retry attempt {} of {}. Waiting {:?} before retry...",
                       retry_count, max_retries, delay);
             tokio::time::sleep(delay).await;
         }
@@ -217,7 +219,7 @@ async fn send_audio_chunk(chunk: Vec<f32>, client: &reqwest::Client) -> Result<T
 #[tauri::command]
 async fn start_recording<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
     log_info!("Attempting to start recording...");
-    
+
     if is_recording() {
         log_error!("Recording already in progress");
         return Err("Recording already in progress".to_string());
@@ -238,21 +240,21 @@ async fn start_recording<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
         SYSTEM_BUFFER = Some(Arc::new(Mutex::new(Vec::new())));
         log_info!("Initialized audio buffers");
     }
-    
+
     // Get default devices
     let mic_device = Arc::new(default_input_device().map_err(|e| {
         log_error!("Failed to get default input device: {}", e);
         e.to_string()
     })?);
-    
+
     let system_device = Arc::new(default_output_device().map_err(|e| {
         log_error!("Failed to get default output device: {}", e);
         e.to_string()
     })?);
-    
+
     // Create audio streams
     let is_running = Arc::new(AtomicBool::new(true));
-    
+
     // Create microphone stream
     let mic_stream = AudioStream::from_device(mic_device.clone(), is_running.clone())
         .await
@@ -261,7 +263,7 @@ async fn start_recording<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
             e.to_string()
         })?;
     let mic_stream = Arc::new(mic_stream);
-    
+
     // Create system audio stream
     let system_stream = AudioStream::from_device(system_device.clone(), is_running.clone())
         .await
@@ -276,55 +278,55 @@ async fn start_recording<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
         SYSTEM_STREAM = Some(system_stream.clone());
         IS_RUNNING = Some(is_running.clone());
     }
-    
+
     // Create HTTP client for transcription
     let client = reqwest::Client::new();
-    
+
     // Start transcription task
     let app_handle = app.clone();
-    
+
     // Create audio receivers
     let mut mic_receiver = mic_stream.subscribe().await;
     let mut mic_receiver_clone = mic_receiver.resubscribe();
     let mut system_receiver = system_stream.subscribe().await;
-    
+
     // Create debug directory for chunks in temp
     let temp_dir = std::env::temp_dir();
     log_info!("System temp directory: {:?}", temp_dir);
     let debug_dir = temp_dir.join("meeting_minutes_debug");
     log_info!("Full debug directory path: {:?}", debug_dir);
-    
+
     // Create directory and check if it exists
     fs::create_dir_all(&debug_dir).map_err(|e| {
         log_error!("Failed to create debug directory: {}", e);
         e.to_string()
     })?;
-    
+
     if debug_dir.exists() {
         log_info!("Debug directory successfully created and exists");
     } else {
         log_error!("Failed to create debug directory - path does not exist after creation");
     }
-    
+
     let chunk_counter = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let chunk_counter_clone = chunk_counter.clone();
-    
+
     // Create transcript accumulator
     let mut accumulator = TranscriptAccumulator::new();
-    
+
     let device_config = mic_stream.device_config.clone();
     let _device_name = mic_stream.device.to_string();
     let sample_rate = device_config.sample_rate().0;
     let channels = device_config.channels();
-    
+
     tokio::spawn(async move {
         let chunk_samples = (WHISPER_SAMPLE_RATE as f32 * (CHUNK_DURATION_MS as f32 / 1000.0)) as usize;
         let min_samples = (WHISPER_SAMPLE_RATE as f32 * (MIN_CHUNK_DURATION_MS as f32 / 1000.0)) as usize;
         let mut current_chunk: Vec<f32> = Vec::with_capacity(chunk_samples);
         let mut last_chunk_time = std::time::Instant::now();
-        
+
         log_info!("Mic config: {} Hz, {} channels", sample_rate, channels);
-        
+
         while is_running.load(Ordering::SeqCst) {
             // Check for timeout on current sentence
             if let Some(update) = accumulator.check_timeout() {
@@ -337,7 +339,7 @@ async fn start_recording<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
             let mut new_samples = Vec::new();
             let mut mic_samples = Vec::new();
             let mut system_samples = Vec::new();
-            
+
             // Get microphone samples
             let mut got_mic_samples = false;
             while let Ok(chunk) = mic_receiver_clone.try_recv() {
@@ -345,7 +347,7 @@ async fn start_recording<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
                 log_debug!("Received {} mic samples", chunk.len());
                 let chunk_clone = chunk.clone();
                 mic_samples.extend(chunk);
-                
+
                 // Store in global buffer
                 unsafe {
                     if let Some(buffer) = &MIC_BUFFER {
@@ -360,7 +362,7 @@ async fn start_recording<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
                 log_debug!("No mic samples received, resubscribing to clear channel");
                 mic_receiver_clone = mic_stream.subscribe().await;
             }
-            
+
             // Get system audio samples
             let mut got_system_samples = false;
             while let Ok(chunk) = system_receiver.try_recv() {
@@ -368,7 +370,7 @@ async fn start_recording<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
                 log_debug!("Received {} system samples", chunk.len());
                 let chunk_clone = chunk.clone();
                 system_samples.extend(chunk);
-                
+
                 // Store in global buffer
                 unsafe {
                     if let Some(buffer) = &SYSTEM_BUFFER {
@@ -383,7 +385,7 @@ async fn start_recording<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
                 log_debug!("No system samples received, resubscribing to clear channel");
                 system_receiver = system_stream.subscribe().await;
             }
-            
+
             // Mix samples with debug info
             let max_len = mic_samples.len().max(system_samples.len());
             for i in 0..max_len {
@@ -392,124 +394,29 @@ async fn start_recording<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
                 // Increase mic sensitivity by giving it more weight in the mix (80% mic, 20% system)
                 new_samples.push((mic_sample * 0.7) + (system_sample * 0.3));
             }
-            
+
             log_debug!("Mixed {} samples", new_samples.len());
-            
+
             // Add samples to current chunk
             for sample in new_samples {
                 current_chunk.push(sample);
             }
-            
+
             // Check if we should send the chunk based on size or time
-            let should_send = current_chunk.len() >= chunk_samples || 
-                            (current_chunk.len() >= min_samples && 
+            let should_send = current_chunk.len() >= chunk_samples ||
+                            (current_chunk.len() >= min_samples &&
                              last_chunk_time.elapsed() >= Duration::from_millis(CHUNK_DURATION_MS as u64));
-            
+
             if should_send {
                 log_info!("Should send chunk with {} samples", current_chunk.len());
                 let chunk_to_send = current_chunk.clone();
                 current_chunk.clear();
                 last_chunk_time = std::time::Instant::now();
-                
+
                 // Save debug chunks
                 let chunk_num = chunk_counter_clone.fetch_add(1, Ordering::SeqCst);
                 log_info!("Processing chunk {}", chunk_num);
-                
-                // // Save mic chunk
-                // if !mic_samples.is_empty() {
-                //     let mic_chunk_path = debug_dir.join(format!("chunk_{}_mic.wav", chunk_num));
-                //     log_info!("Saving mic chunk to {:?}", mic_chunk_path);
-                //     let mic_bytes: Vec<u8> = mic_samples.iter()
-                //         .flat_map(|&sample| {
-                //             let clamped = sample.max(-1.0).min(1.0);
-                //             clamped.to_le_bytes().to_vec()
-                //         })
-                //         .collect();
-                //     if let Err(e) = encode_single_audio(
-                //         &mic_bytes,
-                //         WAV_SAMPLE_RATE,
-                //         1, // Mono for mic
-                //         &mic_chunk_path,
-                //     ) {
-                //         log_error!("Failed to save mic chunk {}: {}", chunk_num, e);
-                //     } else {
-                //         log_info!("Successfully saved mic chunk {} with {} samples", chunk_num, mic_samples.len());
-                //     }
-                // } else {
-                //     log_info!("No mic samples to save for chunk {}", chunk_num);
-                // }
 
-                // Save system chunk
-                // if !system_samples.is_empty() {
-                //     let system_chunk_path = debug_dir.join(format!("chunk_{}_system.wav", chunk_num));
-                //     log_info!("Saving system chunk to {:?}", system_chunk_path);
-                //     let system_bytes: Vec<u8> = system_samples.iter()
-                //         .flat_map(|&sample| {
-                //             let clamped = sample.max(-1.0).min(1.0);
-                //             clamped.to_le_bytes().to_vec()
-                //         })
-                //         .collect();
-                //     if let Err(e) = encode_single_audio(
-                //         &system_bytes,
-                //         WAV_SAMPLE_RATE,
-                //         2, // Stereo for system
-                //         &system_chunk_path,
-                //     ) {
-                //         log_error!("Failed to save system chunk {}: {}", chunk_num, e);
-                //     } else {
-                //         log_info!("Successfully saved system chunk {} with {} samples", chunk_num, system_samples.len());
-                //     }
-                // } else {
-                //     log_info!("No system samples to save for chunk {}", chunk_num);
-                // }
-                
-                // Save mixed chunk
-                // if !chunk_to_send.is_empty() {
-                //     let mixed_chunk_path = debug_dir.join(format!("chunk_{}_mixed.wav", chunk_num));
-                //     log_info!("Saving mixed chunk to {:?}", mixed_chunk_path);
-                //     let mixed_bytes: Vec<u8> = chunk_to_send.iter()
-                //         .flat_map(|&sample| {
-                //             let clamped = sample.max(-1.0).min(1.0);
-                //             clamped.to_le_bytes().to_vec()
-                //         })
-                //         .collect();
-                //     match encode_single_audio(
-                //         &mixed_bytes,
-                //         WAV_SAMPLE_RATE,
-                //         WAV_CHANNELS,
-                //         &mixed_chunk_path,
-                //     ) {
-                //         Ok(_) => {
-                //             log_info!("Successfully saved mixed chunk {} with {} samples", chunk_num, chunk_to_send.len());
-                //         }
-                //         Err(e) => {
-                //             // Check if it's a broken pipe error
-                //             if e.to_string().contains("Broken pipe") {
-                //                 log_debug!("Broken pipe while saving chunk {} - this is expected during cleanup", chunk_num);
-                //             } else {
-                //                 log_error!("Failed to save mixed chunk {}: {}", chunk_num, e);
-                //             }
-                //         }
-                //     }
-                // } else {
-                //     log_info!("No mixed samples to save for chunk {}", chunk_num);
-                // }
-                
-                // Keep only last 10 chunks
-                // if chunk_num > 10 {
-                //     if let Ok(entries) = fs::read_dir(&debug_dir) {
-                //         for entry in entries.flatten() {
-                //             if let Some(name) = entry.file_name().to_str() {
-                //                 if name.starts_with("chunk_") && 
-                //                    name.ends_with(".wav") && 
-                //                    !name.contains(&format!("chunk_{}", chunk_num)) {
-                //                     let _ = fs::remove_file(entry.path());
-                //                 }
-                //             }
-                //         }
-                //     }
-                // }
-                
                 // Process chunk for Whisper API
                 let whisper_samples = if sample_rate != WHISPER_SAMPLE_RATE {
                     log_debug!("Resampling audio from {} to {}", sample_rate, WHISPER_SAMPLE_RATE);
@@ -527,7 +434,7 @@ async fn start_recording<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
                     Ok(response) => {
                         log_info!("Received {} transcript segments", response.segments.len());
                         for segment in response.segments {
-                            log_info!("Processing segment: {} ({:.1}s - {:.1}s)", 
+                            log_info!("Processing segment: {} ({:.1}s - {:.1}s)",
                                      segment.text.trim(), segment.t0, segment.t1);
                             // Add segment to accumulator and check for complete sentence
                             if let Some(update) = accumulator.add_segment(&segment) {
@@ -543,27 +450,27 @@ async fn start_recording<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
                     }
                 }
             }
-            
+
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        
+
         // Emit any remaining transcript when recording stops
         if let Some(update) = accumulator.check_timeout() {
             if let Err(e) = app_handle.emit("transcript-update", update) {
                 log_error!("Failed to send final transcript update: {}", e);
             }
         }
-        
+
         log_info!("Transcription task ended");
     });
-    
+
     Ok(())
 }
 
 #[tauri::command]
 async fn stop_recording(args: RecordingArgs) -> Result<(), String> {
     log_info!("Attempting to stop recording...");
-    
+
     // Only check recording state if we haven't already started stopping
     if !RECORDING_FLAG.load(Ordering::SeqCst) {
         log_info!("Recording is already stopped");
@@ -586,17 +493,17 @@ async fn stop_recording(args: RecordingArgs) -> Result<(), String> {
     // First set the recording flag to false to prevent new data from being processed
     RECORDING_FLAG.store(false, Ordering::SeqCst);
     log_info!("Recording flag set to false");
-    
+
     unsafe {
         // Stop the running flag for audio streams first
         if let Some(is_running) = &IS_RUNNING {
             // Set running flag to false first to stop the tokio task
             is_running.store(false, Ordering::SeqCst);
             log_info!("Set recording flag to false, waiting for streams to stop...");
-            
+
             // Give the tokio task time to finish and release its references
             tokio::time::sleep(Duration::from_millis(100)).await;
-            
+
             // Stop mic stream if it exists
             if let Some(mic_stream) = &MIC_STREAM {
                 log_info!("Stopping microphone stream...");
@@ -606,7 +513,7 @@ async fn stop_recording(args: RecordingArgs) -> Result<(), String> {
                     log_info!("Microphone stream stopped successfully");
                 }
             }
-            
+
             // Stop system stream if it exists
             if let Some(system_stream) = &SYSTEM_STREAM {
                 log_info!("Stopping system stream...");
@@ -616,17 +523,17 @@ async fn stop_recording(args: RecordingArgs) -> Result<(), String> {
                     log_info!("System stream stopped successfully");
                 }
             }
-            
+
             // Clear the stream references
             MIC_STREAM = None;
             SYSTEM_STREAM = None;
             IS_RUNNING = None;
-            
+
             // Give streams time to fully clean up
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
     }
-    
+
     // Get final buffers
     let mic_data = unsafe {
         if let Some(buffer) = &MIC_BUFFER {
@@ -639,7 +546,7 @@ async fn stop_recording(args: RecordingArgs) -> Result<(), String> {
             Vec::new()
         }
     };
-    
+
     let system_data = unsafe {
         if let Some(buffer) = &SYSTEM_BUFFER {
             if let Ok(guard) = buffer.lock() {
@@ -651,75 +558,7 @@ async fn stop_recording(args: RecordingArgs) -> Result<(), String> {
             Vec::new()
         }
     };
-    /*
-    // Mix the audio and convert to 16-bit PCM
-    let max_len = mic_data.len().max(system_data.len());
-    let mut mixed_data = Vec::with_capacity(max_len);
-    
-    for i in 0..max_len {
-        let mic_sample = if i < mic_data.len() { mic_data[i] } else { 0.0 };
-        let system_sample = if i < system_data.len() { system_data[i] } else { 0.0 };
-        mixed_data.push((mic_sample + system_sample) * 0.5);
-    }
 
-    if mixed_data.is_empty() {
-        log_error!("No audio data captured");
-        return Err("No audio data captured".to_string());
-    }
-    
-    log_info!("Mixed {} audio samples", mixed_data.len());
-    
-    // Resample the audio to 16kHz for Whisper compatibility
-    let original_sample_rate = 48000; // Assuming original sample rate is 48kHz
-    if original_sample_rate != WHISPER_SAMPLE_RATE {
-        log_info!("Resampling audio from {} Hz to {} Hz for Whisper compatibility", 
-                 original_sample_rate, WHISPER_SAMPLE_RATE);
-        mixed_data = resample_audio(&mixed_data, original_sample_rate, WHISPER_SAMPLE_RATE);
-        log_info!("Resampled to {} samples", mixed_data.len());
-    }
-    
-    // Convert to 16-bit PCM samples
-    let mut bytes = Vec::with_capacity(mixed_data.len() * 2);
-    for &sample in mixed_data.iter() {
-        let value = (sample.max(-1.0).min(1.0) * 32767.0) as i16;
-        bytes.extend_from_slice(&value.to_le_bytes());
-    }
-    
-    log_info!("Converted to {} bytes of PCM data", bytes.len());
-
-    // Create WAV header
-    let data_size = bytes.len() as u32;
-    let file_size = 36 + data_size;
-    let sample_rate = WHISPER_SAMPLE_RATE; // Use Whisper's required sample rate (16000 Hz)
-    let channels = 1u16; // Mono
-    let bits_per_sample = 16u16;
-    let block_align = channels * (bits_per_sample / 8);
-    let byte_rate = sample_rate * block_align as u32;
-    
-    let mut wav_file = Vec::with_capacity(44 + bytes.len());
-    
-    // RIFF header
-    wav_file.extend_from_slice(b"RIFF");
-    wav_file.extend_from_slice(&file_size.to_le_bytes());
-    wav_file.extend_from_slice(b"WAVE");
-    
-    // fmt chunk
-    wav_file.extend_from_slice(b"fmt ");
-    wav_file.extend_from_slice(&16u32.to_le_bytes()); // fmt chunk size
-    wav_file.extend_from_slice(&1u16.to_le_bytes()); // audio format (PCM)
-    wav_file.extend_from_slice(&channels.to_le_bytes()); // num channels
-    wav_file.extend_from_slice(&sample_rate.to_le_bytes()); // sample rate
-    wav_file.extend_from_slice(&byte_rate.to_le_bytes()); // byte rate
-    wav_file.extend_from_slice(&block_align.to_le_bytes()); // block align
-    wav_file.extend_from_slice(&bits_per_sample.to_le_bytes()); // bits per sample
-    
-    // data chunk
-    wav_file.extend_from_slice(b"data");
-    wav_file.extend_from_slice(&data_size.to_le_bytes());
-    wav_file.extend_from_slice(&bytes);
-    
-    log_info!("Created WAV file with {} bytes total", wav_file.len());
-    */
     // Create the save directory if it doesn't exist
     if let Some(parent) = std::path::Path::new(&args.save_path).parent() {
         if !parent.exists() {
@@ -732,19 +571,6 @@ async fn stop_recording(args: RecordingArgs) -> Result<(), String> {
         }
     }
 
-    /*
-    // Save the recording
-    log_info!("Saving recording to: {}", args.save_path);
-    match fs::write(&args.save_path, wav_file) {
-        Ok(_) => log_info!("Successfully saved recording"),
-        Err(e) => {
-            let err_msg = format!("Failed to save recording: {}", e);
-            log_error!("{}", err_msg);
-            return Err(err_msg);
-        }
-    }
-    */
-    
     // Clean up
     unsafe {
         MIC_BUFFER = None;
@@ -754,7 +580,7 @@ async fn stop_recording(args: RecordingArgs) -> Result<(), String> {
         IS_RUNNING = None;
         RECORDING_START_TIME = None;
     }
-    
+
     Ok(())
 }
 
@@ -805,7 +631,7 @@ fn stereo_to_mono(stereo: &[i16]) -> Vec<i16> {
 
 pub fn run() {
     log::set_max_level(log::LevelFilter::Info);
-    
+
     tauri::Builder::default()
         .setup(|_app| {
             log::info!("Application setup complete");
@@ -823,6 +649,10 @@ pub fn run() {
             is_recording,
             read_audio_file,
             save_transcript,
+            start_native_audio_capture,
+            stop_native_audio_capture,
+            check_system_audio_device,
+            benchmark_ipc_performance,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -833,17 +663,286 @@ fn resample_audio(samples: &[f32], from_rate: u32, to_rate: u32) -> Vec<f32> {
     if from_rate == to_rate {
         return samples.to_vec();
     }
-    
+
     let ratio = to_rate as f32 / from_rate as f32;
     let new_len = (samples.len() as f32 * ratio) as usize;
     let mut resampled = Vec::with_capacity(new_len);
-    
+
     for i in 0..new_len {
         let src_idx = (i as f32 / ratio) as usize;
         if src_idx < samples.len() {
             resampled.push(samples[src_idx]);
         }
     }
-    
+
     resampled
+}
+
+/// Start native system audio capture (BlackHole) with zero-copy IPC
+#[tauri::command]
+async fn start_native_audio_capture<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    log_info!("Starting native system audio capture with zero-copy IPC...");
+
+    if is_recording() {
+        log_error!("Recording already in progress");
+        return Err("Recording already in progress".to_string());
+    }
+
+    // Initialize recording flag
+    RECORDING_FLAG.store(true, Ordering::SeqCst);
+    log_info!("Native audio capture flag set to true");
+
+    // Store recording start time
+    unsafe {
+        RECORDING_START_TIME = Some(std::time::Instant::now());
+    }
+
+    // Get system audio device (BlackHole on macOS)
+    let system_device = Arc::new(get_system_audio_device().map_err(|e| {
+        log_error!("Failed to get system audio device: {}", e);
+        format!("System audio device not found: {}. Please install BlackHole on macOS or enable Stereo Mix on Windows.", e)
+    })?);
+
+    log_info!("Using system audio device: {}", system_device.to_string());
+
+    // Create audio stream for system audio only
+    let is_running = Arc::new(AtomicBool::new(true));
+
+    let system_stream = AudioStream::from_device(system_device.clone(), is_running.clone())
+        .await
+        .map_err(|e| {
+            log_error!("Failed to create system audio stream: {}", e);
+            e.to_string()
+        })?;
+    let system_stream = Arc::new(system_stream);
+
+    unsafe {
+        SYSTEM_STREAM = Some(system_stream.clone());
+        IS_RUNNING = Some(is_running.clone());
+    }
+
+    // Initialize zero-copy IPC instead of HTTP client
+    let ipc = ZeroCopyIPC::new().map_err(|e| {
+        log_error!("Failed to initialize zero-copy IPC: {}", e);
+        format!("Zero-copy IPC initialization failed: {}", e)
+    })?;
+
+    log_info!("Zero-copy IPC initialized successfully - eliminating HTTP bottleneck");
+
+    // Start the optimized audio processing task
+    let app_handle = app.clone();
+    let mut system_receiver = system_stream.subscribe().await;
+
+    let device_config = system_stream.device_config.clone();
+    let sample_rate = device_config.sample_rate().0;
+    let channels = device_config.channels();
+
+    log_info!("Native audio config: {} Hz, {} channels", sample_rate, channels);
+
+    // Spawn the zero-copy audio processing task
+    tokio::spawn(async move {
+        let chunk_samples = (WHISPER_SAMPLE_RATE as f32 * (CHUNK_DURATION_MS as f32 / 1000.0)) as usize;
+        let min_samples = (WHISPER_SAMPLE_RATE as f32 * (MIN_CHUNK_DURATION_MS as f32 / 1000.0)) as usize;
+        let mut current_chunk: Vec<f32> = Vec::with_capacity(chunk_samples);
+        let mut last_chunk_time = std::time::Instant::now();
+        let mut accumulator = TranscriptAccumulator::new();
+        let mut ipc = ipc; // Move IPC into the async task
+
+        log_info!("Zero-copy audio processing started with system audio only");
+
+        while is_running.load(Ordering::SeqCst) {
+            // Check for timeout on current sentence
+            if let Some(update) = accumulator.check_timeout() {
+                // Emit to HUD directly via Tauri event
+                if let Err(e) = app_handle.emit("hud-transcript-update", &update) {
+                    log_error!("Failed to send transcript update to HUD: {}", e);
+                }
+            }
+
+            // Collect system audio samples
+            let mut new_samples = Vec::new();
+            let mut got_samples = false;
+
+            while let Ok(chunk) = system_receiver.try_recv() {
+                got_samples = true;
+                log_debug!("Received {} system audio samples", chunk.len());
+                new_samples.extend(chunk);
+            }
+
+            // If we didn't get any samples, try to resubscribe
+            if !got_samples {
+                log_debug!("No system audio samples received, resubscribing");
+                system_receiver = system_stream.subscribe().await;
+            }
+
+            // Add samples to current chunk
+            current_chunk.extend(new_samples);
+
+            // Check if we should send the chunk
+            let should_send = current_chunk.len() >= chunk_samples ||
+                            (current_chunk.len() >= min_samples &&
+                             last_chunk_time.elapsed() >= Duration::from_millis(CHUNK_DURATION_MS as u64));
+
+            if should_send && !current_chunk.is_empty() {
+                let chunk_start_time = std::time::Instant::now();
+                log_info!("Sending zero-copy audio chunk with {} samples", current_chunk.len());
+                let chunk_to_send = current_chunk.clone();
+                current_chunk.clear();
+                last_chunk_time = std::time::Instant::now();
+
+                // Use zero-copy IPC instead of HTTP POST
+                match ipc.write_audio_chunk(&chunk_to_send, WHISPER_SAMPLE_RATE) {
+                    Ok(_) => {
+                        let ipc_latency = chunk_start_time.elapsed();
+                        log_debug!("Zero-copy IPC write completed in {:?}", ipc_latency);
+
+                        // Monitor IPC performance
+                        let (write_pos, read_pos, status) = ipc.get_buffer_status();
+                        log_debug!("IPC buffer status: write={}, read={}, status={}", write_pos, read_pos, status);
+
+                        // For now, emit a placeholder transcript until Whisper server is updated
+                        // TODO: Remove this when Whisper server IPC is implemented
+                        let sample_update = TranscriptUpdate {
+                            text: format!("Zero-copy IPC test: {} samples processed", chunk_to_send.len()),
+                            timestamp: format!("{:.1}s", chunk_start_time.elapsed().as_secs_f32()),
+                            source: "Zero-Copy IPC".to_string(),
+                        };
+
+                        if let Err(e) = app_handle.emit("hud-transcript-update", &sample_update) {
+                            log_error!("Failed to send IPC test update to HUD: {}", e);
+                        }
+                    }
+                    Err(e) => {
+                        log_error!("Zero-copy IPC write failed: {}", e);
+                        // Fallback to HTTP if IPC fails (temporary)
+                        log_info!("Falling back to HTTP POST as backup");
+
+                        // Create HTTP client for fallback
+                        let client = reqwest::Client::new();
+                        match send_audio_chunk(chunk_to_send, &client).await {
+                            Ok(transcript_response) => {
+                                log_info!("HTTP fallback successful with {} segments", transcript_response.segments.len());
+
+                                // Process each segment and emit to HUD
+                                for segment in transcript_response.segments {
+                                    if let Some(update) = accumulator.add_segment(&segment) {
+                                        if let Err(e) = app_handle.emit("hud-transcript-update", &update) {
+                                            log_error!("Failed to send transcript update to HUD: {}", e);
+                                        } else {
+                                            log_info!("Sent transcript to HUD: {}", update.text);
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                log_error!("Both zero-copy IPC and HTTP fallback failed: {}", e);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Small delay to prevent busy waiting
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        log_info!("Zero-copy audio processing task completed");
+    });
+
+    // Emit success event to HUD
+    if let Err(e) = app.emit("hud-status", "connected") {
+        log_error!("Failed to emit status to HUD: {}", e);
+    }
+
+    log_info!("Native system audio capture with zero-copy IPC started successfully");
+    Ok(())
+}
+
+/// Stop native audio capture
+#[tauri::command]
+async fn stop_native_audio_capture<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    log_info!("Stopping native audio capture...");
+
+    if !is_recording() {
+        log_error!("No recording in progress");
+        return Err("No recording in progress".to_string());
+    }
+
+    // Set recording flag to false
+    RECORDING_FLAG.store(false, Ordering::SeqCst);
+
+    // Stop the audio streams
+    unsafe {
+        if let Some(is_running) = &IS_RUNNING {
+            is_running.store(false, Ordering::SeqCst);
+        }
+
+        if let Some(stream) = &SYSTEM_STREAM {
+            if let Err(e) = stream.stop().await {
+                log_error!("Failed to stop system stream: {}", e);
+            }
+        }
+
+        // Clear global state
+        SYSTEM_STREAM = None;
+        IS_RUNNING = None;
+    }
+
+    // Emit disconnected status to HUD
+    if let Err(e) = app.emit("hud-status", "disconnected") {
+        log_error!("Failed to emit disconnected status to HUD: {}", e);
+    }
+
+    log_info!("Native audio capture stopped successfully");
+    Ok(())
+}
+
+/// Check if system audio device is available
+#[tauri::command]
+async fn check_system_audio_device() -> Result<String, String> {
+    match get_system_audio_device() {
+        Ok(device) => {
+            log_info!("System audio device available: {}", device.to_string());
+            Ok(device.to_string())
+        }
+        Err(e) => {
+            log_error!("System audio device not available: {}", e);
+            Err(e.to_string())
+        }
+    }
+}
+
+/// Benchmark zero-copy IPC vs HTTP performance
+#[tauri::command]
+async fn benchmark_ipc_performance() -> Result<String, String> {
+    log_info!("Starting Sprint 4 IPC performance benchmark");
+
+    // Create test audio data (1 second of 16kHz audio)
+    let test_audio: Vec<f32> = (0..16000)
+        .map(|i| (i as f32 * 440.0 * 2.0 * std::f32::consts::PI / 16000.0).sin() * 0.1)
+        .collect();
+
+    match ipc::benchmark_ipc_vs_http(&test_audio, 100) {
+        Ok((ipc_duration, http_duration)) => {
+            let speedup = http_duration.as_nanos() as f64 / ipc_duration.as_nanos() as f64;
+            let result = format!(
+                "Sprint 4 IPC Benchmark Results:\n\
+                 Zero-Copy IPC: {:?}\n\
+                 HTTP Baseline: {:?}\n\
+                 Performance Gain: {:.2}x faster\n\
+                 Latency Reduction: {:?}",
+                ipc_duration,
+                http_duration,
+                speedup,
+                http_duration - ipc_duration
+            );
+            log_info!("{}", result);
+            Ok(result)
+        }
+        Err(e) => {
+            let error = format!("Benchmark failed: {}", e);
+            log_error!("{}", error);
+            Err(error)
+        }
+    }
 }

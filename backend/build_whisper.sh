@@ -36,7 +36,16 @@ handle_error() {
 }
 
 # Main script
+cd backend || handle_error "Failed to change to backend directory"
 log_section "Starting Whisper.cpp Build Process"
+
+log_info "Checking for dependencies..."
+for cmd in cmake make gcc g++; do
+    if ! [ -x "$(command -v $cmd)" ]; then
+        handle_error "$cmd is not installed. Please install it. On Debian/Ubuntu, you can use: sudo apt-get install $cmd"
+    fi
+done
+log_success "All dependencies are installed."
 
 log_info "Updating git submodules..."
 git submodule update --init --recursive || handle_error "Failed to update git submodules"
@@ -62,18 +71,44 @@ log_info "Verifying server files..."
 ls "examples/server/" || handle_error "Failed to list server files"
 
 log_section "Building Whisper Server"
-log_info "Installing required dependencies..."
-brew install libomp llvm cmake || handle_error "Failed to install dependencies"
-
 log_info "Building whisper.cpp..."
 rm -rf build
 mkdir build && cd build || handle_error "Failed to create build directory"
 
-# Configure CMake with simple warning suppression
-log_info "Configuring CMake..."
-cmake -DCMAKE_C_FLAGS="-w" -DCMAKE_CXX_FLAGS="-w" .. || handle_error "CMake configuration failed"
+# Sprint 5: Configure CMake with multi-backend optimization flags
+log_info "Configuring CMake with Sprint 5 optimizations..."
 
-make -j4 || handle_error "Make failed"
+# Sprint 5: Release build flags for maximum performance
+RELEASE_FLAGS="-Ofast -ffp-contract=fast -funroll-loops -march=native -DNDEBUG"
+cmake_flags=("-DCMAKE_BUILD_TYPE=Release"
+             "-DCMAKE_C_FLAGS='$RELEASE_FLAGS'"
+             "-DCMAKE_CXX_FLAGS='$RELEASE_FLAGS'")
+
+# Sprint 5: Multi-backend support - enable all available backends
+log_info "Enabling multi-backend support (Metal, CoreML, CUDA)..."
+
+# Check if on a Mac (enable Metal and CoreML)
+if [[ "$(uname)" == "Darwin" ]]; then
+    log_info "macOS detected: enabling Metal and CoreML with FP16 optimization"
+    cmake_flags+=("-DWHISPER_METAL=ON"
+                  "-DWHISPER_COREML=ON"
+                  "-DWHISPER_COREML_ALLOW_FALLBACK=ON"
+                  "-DWHISPER_METAL_NBITS=16")  # Sprint 5: FP16 for Metal
+fi
+
+# Check for NVIDIA GPU (enable CUDA)
+if command -v nvidia-smi &> /dev/null; then
+    log_info "NVIDIA GPU detected: enabling CUDA support"
+    cmake_flags+=("-DWHISPER_CUDA=ON")
+fi
+
+# Sprint 5: VAD support for Phase 2 optimizations
+cmake_flags+=("-DWHISPER_LIBRISPEECH_VAD=ON")
+
+log_info "CMake flags: ${cmake_flags[*]}"
+cmake "${cmake_flags[@]}" .. || handle_error "CMake configuration failed"
+
+make -j$(nproc) || handle_error "Make failed"
 cd ..
 log_success "Build completed successfully"
 
@@ -146,13 +181,7 @@ large-v3-turbo-q5_0
 large-v3-turbo-q8_0"
 
 # Ask user which model to use if the argument is not provided
-if [ -z "$1" ]; then
-    # Let user interactively select a model name
-    log_info "Available models: $models"
-    read -p "Enter a model name (e.g. small): " MODEL_SHORT_NAME
-else
-    MODEL_SHORT_NAME=$1
-fi
+MODEL_SHORT_NAME="base.en"
 
 # Check if the model is valid
 if ! echo "$models" | grep -qw "$MODEL_SHORT_NAME"; then
@@ -172,15 +201,26 @@ else
     mv "./models/$MODEL_NAME" "$MODEL_DIR/" || handle_error "Failed to move model to models directory"
 fi
 
-# Create run script
-log_info "Creating run script..."
+# Sprint 5: Create enhanced run script with backend support
+log_info "Creating Sprint 5 enhanced run script..."
 cat > "$PACKAGE_NAME/run-server.sh" << 'EOL'
 #!/bin/bash
 
-# Default configuration
+# Sprint 5: Enhanced server configuration
 HOST="127.0.0.1"
 PORT="8178"
-MODEL="models/ggml-large-v3.bin"
+MODEL="models/ggml-base.en.bin"
+HOT_MODEL="models/ggml-tiny.en-q5_1.bin"
+BACKEND="auto"
+STEP_MS="256"
+LENGTH_MS="2000"
+
+# Sprint 5: Environment variable support
+export STEP_MS="${STEP_MS}"
+export LENGTH_MS="${LENGTH_MS}"
+export WHISPER_MAX_ACTIVE="2"
+
+echo "🚀 Sprint 5: Starting Whisper.cpp server with <150ms optimization"
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -197,19 +237,48 @@ while [[ $# -gt 0 ]]; do
             MODEL="$2"
             shift 2
             ;;
+        --hot-model)
+            HOT_MODEL="$2"
+            shift 2
+            ;;
+        --backend)
+            BACKEND="$2"
+            shift 2
+            ;;
+        --step-ms)
+            STEP_MS="$2"
+            export STEP_MS="$2"
+            shift 2
+            ;;
+        --length-ms)
+            LENGTH_MS="$2"
+            export LENGTH_MS="$2"
+            shift 2
+            ;;
         *)
             echo "Unknown option: $1"
+            echo "Available options: --host, --port, --model, --hot-model, --backend, --step-ms, --length-ms"
             exit 1
             ;;
     esac
 done
 
-# Run the server
+echo "Cold Path Model: $MODEL"
+echo "Hot Path Model: $HOT_MODEL"
+echo "Backend: $BACKEND"
+echo "Streaming: step=${STEP_MS}ms, length=${LENGTH_MS}ms"
+echo "Endpoints: /inference (cold), /hot_stream (hot)"
+
+# Sprint 5: Run server with hot/cold model architecture
 ./whisper-server \
     --model "$MODEL" \
     --host "$HOST" \
     --port "$PORT" \
-    --diarize \
+    --step-ms "$STEP_MS" \
+    --length-ms "$LENGTH_MS" \
+    --keep-ms 0 \
+    --use-gpu true \
+    --no-timestamps \
     --print-progress
 
 
@@ -241,9 +310,9 @@ fi
 if [ -d "../$PACKAGE_NAME" ]; then
     log_info "Copying package contents to existing directory..."
     cp -r "$PACKAGE_NAME/"* "../$PACKAGE_NAME" || handle_error "Failed to copy package contents"
-    
+
 else
-   
+
    log_info "Copying whisper-server and model to ../$PACKAGE_NAME"
     cp "$MODEL_DIR/$MODEL_NAME" "../$PACKAGE_NAME/models/" || handle_error "Failed to copy model"
     cp "$PACKAGE_NAME/run-server.sh" "../$PACKAGE_NAME" || handle_error "Failed to copy run script"
@@ -271,20 +340,80 @@ log_success "Whisper.cpp server build and setup completed successfully!"
 
 log_section "Installing python dependencies"
 
-# Tell user to create a virtual environment in the backend directory and activate it, install dependencies and check if FastAPI is installed
-
 log_info "Installing python dependencies..."
 cd backend || handle_error "Failed to change to backend directory"
-# Create virtual environment only if it doesn't exist
-if [ ! -d "venv" ]; then
-    log_info "Creating virtual environment..."
-    python3 -m venv venv || handle_error "Failed to create virtual environment"
-    source venv/bin/activate || handle_error "Failed to activate virtual environment"
-    pip install -r requirements.txt || handle_error "Failed to install dependencies"
+
+# Check if python3-venv is available
+check_python_venv() {
+    if ! python3 -m venv --help &> /dev/null; then
+        log_error "Python venv module is not available."
+        log_info "On Ubuntu/Debian, install it with: sudo apt update && sudo apt install python3-venv python3.10-venv -y"
+        log_info "On other systems, make sure python3-venv is installed"
+        return 1
+    fi
+    return 0
+}
+
+# Check and install venv if needed
+if ! check_python_venv; then
+    log_warning "Attempting to install python3-venv automatically..."
+    if command -v apt &> /dev/null; then
+        log_info "Detected Debian/Ubuntu system. Installing python3-venv..."
+        if ! sudo apt update && sudo apt install python3-venv python3.10-venv -y; then
+            log_error "Failed to install python3-venv. Please install it manually and run the script again."
+            log_info "Run: sudo apt update && sudo apt install python3-venv python3.10-venv -y"
+            exit 1
+        fi
+        log_success "python3-venv installed successfully"
+    else
+        log_error "Cannot auto-install python3-venv on this system. Please install it manually."
+        exit 1
+    fi
+fi
+
+# Check if virtual environment exists and is valid
+validate_venv() {
+    if [ -d "venv" ] && [ -f "venv/bin/activate" ] && [ -f "venv/bin/python" ]; then
+        return 0  # Valid venv
+    else
+        return 1  # Invalid or missing venv
+    fi
+}
+
+# Create or recreate virtual environment
+if validate_venv; then
+    log_info "Valid virtual environment already exists"
 else
-    log_info "Virtual environment already exists"
-    source venv/bin/activate || handle_error "Failed to activate virtual environment"
-    pip install -r requirements.txt || handle_error "Failed to install dependencies"
+    if [ -d "venv" ]; then
+        log_warning "Corrupted virtual environment detected. Removing and recreating..."
+        rm -rf venv
+    fi
+
+    log_info "Creating virtual environment..."
+    if ! python3 -m venv venv; then
+        log_error "Failed to create virtual environment. Make sure python3-venv is installed."
+        log_info "Try: sudo apt install python3-venv python3.10-venv"
+        exit 1
+    fi
+    log_success "Virtual environment created successfully"
+fi
+
+# Activate virtual environment and install dependencies
+log_info "Activating virtual environment and installing dependencies..."
+if ! source venv/bin/activate; then
+    log_error "Failed to activate virtual environment"
+    log_info "Removing corrupted venv and trying again..."
+    rm -rf venv
+    if ! python3 -m venv venv; then
+        handle_error "Failed to recreate virtual environment"
+    fi
+    if ! source venv/bin/activate; then
+        handle_error "Failed to activate recreated virtual environment"
+    fi
+fi
+
+if ! pip install -r requirements.txt; then
+    handle_error "Failed to install dependencies"
 fi
 
 log_success "Dependencies installed successfully"

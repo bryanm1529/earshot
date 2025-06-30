@@ -1,7 +1,6 @@
 #include "whisper.h"
 #include "httplib.h"
 #include "json.hpp"
-#include "websocket.h"
 
 #include <cmath>
 #include <fstream>
@@ -13,8 +12,6 @@
 #include <sstream>
 #include <random>
 #include <chrono>
-#include <mutex>
-#include <memory>
 
 #if defined(_MSC_VER)
 #pragma warning(disable: 4244 4267) // possible loss of data
@@ -22,22 +19,6 @@
 
 using namespace httplib;
 using json = nlohmann::ordered_json;
-
-// Forward declarations for WebSocket support
-class WhisperWebSocketHandler;
-struct WebSocketConnection {
-    websocket::WSConnection<WhisperWebSocketHandler, char, false, 65536, false>* ws_conn;
-    std::vector<float> audio_buffer;
-    std::chrono::steady_clock::time_point last_activity;
-    bool is_active;
-
-    WebSocketConnection() : ws_conn(nullptr), is_active(false) {}
-};
-
-// Global WebSocket state
-std::mutex ws_connections_mutex;
-std::vector<std::shared_ptr<WebSocketConnection>> active_connections;
-struct whisper_context* ws_whisper_ctx = nullptr;
 
 // Minimal required functions from common.h
 #define WHISPER_SAMPLE_RATE 16000
@@ -805,211 +786,6 @@ void get_req_parameters(const Request & req, whisper_params & params)
 
 }  // namespace
 
-// WebSocket Handler for Real-time Audio Streaming
-class WhisperWebSocketHandler {
-public:
-    using WSConnection = websocket::WSConnection<WhisperWebSocketHandler, char, false, 65536, false>;
-
-    // WebSocket connection opened
-    bool onWSConnect(WSConnection& conn, const char* request_uri, const char* host, const char* origin,
-                     const char* protocol, const char* extensions, char* resp_protocol, uint32_t resp_protocol_size,
-                     char* resp_extensions, uint32_t resp_extensions_size) {
-
-        fprintf(stderr, "[WS] New WebSocket connection: %s\n", request_uri);
-
-        // Only accept connections to /hot_stream
-        if (strcmp(request_uri, "/hot_stream") != 0) {
-            fprintf(stderr, "[WS] Rejected connection - invalid path: %s\n", request_uri);
-            return false;
-        }
-
-        // Create connection object
-        auto ws_conn = std::make_shared<WebSocketConnection>();
-        ws_conn->ws_conn = &conn;
-        ws_conn->last_activity = std::chrono::steady_clock::now();
-        ws_conn->is_active = true;
-        ws_conn->audio_buffer.reserve(WHISPER_SAMPLE_RATE * 2); // 2 seconds buffer
-
-        // Add to active connections
-        {
-            std::lock_guard<std::mutex> lock(ws_connections_mutex);
-            active_connections.push_back(ws_conn);
-        }
-
-        fprintf(stderr, "[WS] Connection accepted and added to pool\n");
-        return true;
-    }
-
-    // WebSocket connection closed
-    void onWSClose(WSConnection& conn, uint16_t status_code, const char* reason) {
-        fprintf(stderr, "[WS] Connection closed: %d - %s\n", status_code, reason ? reason : "");
-
-        // Remove from active connections
-        {
-            std::lock_guard<std::mutex> lock(ws_connections_mutex);
-            active_connections.erase(
-                std::remove_if(active_connections.begin(), active_connections.end(),
-                    [&conn](const std::shared_ptr<WebSocketConnection>& ws_conn) {
-                        return ws_conn->ws_conn == &conn;
-                    }),
-                active_connections.end()
-            );
-        }
-    }
-
-    // WebSocket message received (audio data)
-    void onWSMsg(WSConnection& conn, uint8_t opcode, const uint8_t* payload, uint32_t pl_len) {
-        if (opcode == websocket::OPCODE_BINARY) { // Binary frame - audio data
-            processAudioData(conn, payload, pl_len);
-        } else if (opcode == websocket::OPCODE_TEXT) { // Text frame - commands/control
-            processTextMessage(conn, payload, pl_len);
-        }
-    }
-
-private:
-    void processAudioData(WSConnection& conn, const uint8_t* payload, uint32_t pl_len) {
-        // Find the connection object
-        std::shared_ptr<WebSocketConnection> ws_conn;
-        {
-            std::lock_guard<std::mutex> lock(ws_connections_mutex);
-            auto it = std::find_if(active_connections.begin(), active_connections.end(),
-                [&conn](const std::shared_ptr<WebSocketConnection>& c) {
-                    return c->ws_conn == &conn;
-                });
-            if (it != active_connections.end()) {
-                ws_conn = *it;
-            }
-        }
-
-        if (!ws_conn) {
-            fprintf(stderr, "[WS] Warning: Connection not found in pool\n");
-            return;
-        }
-
-        // Update activity timestamp
-        ws_conn->last_activity = std::chrono::steady_clock::now();
-
-        // Convert raw audio data (assuming 16-bit PCM) to float
-        const int16_t* audio_data = reinterpret_cast<const int16_t*>(payload);
-        size_t sample_count = pl_len / 2;
-
-        // Add to audio buffer
-        size_t prev_size = ws_conn->audio_buffer.size();
-        ws_conn->audio_buffer.resize(prev_size + sample_count);
-
-        for (size_t i = 0; i < sample_count; ++i) {
-            ws_conn->audio_buffer[prev_size + i] = static_cast<float>(audio_data[i]) / 32768.0f;
-        }
-
-        // Process if we have enough audio (e.g., 0.5 seconds worth)
-        const size_t min_samples = WHISPER_SAMPLE_RATE / 2; // 0.5 seconds
-        if (ws_conn->audio_buffer.size() >= min_samples) {
-            processAudioChunk(*ws_conn);
-        }
-    }
-
-    void processTextMessage(WSConnection& conn, const uint8_t* payload, uint32_t pl_len) {
-        std::string message(reinterpret_cast<const char*>(payload), pl_len);
-        fprintf(stderr, "[WS] Text message: %s\n", message.c_str());
-
-        // Handle control messages (e.g., configuration, ping, etc.)
-        try {
-            auto j = json::parse(message);
-            if (j.contains("type")) {
-                std::string type = j["type"];
-                if (type == "ping") {
-                    // Send pong response
-                    json pong = {{"type", "pong"}};
-                    std::string pong_str = pong.dump();
-                    conn.send(websocket::OPCODE_TEXT, reinterpret_cast<const uint8_t*>(pong_str.c_str()), pong_str.length());
-                }
-            }
-        } catch (const std::exception& e) {
-            fprintf(stderr, "[WS] Invalid JSON message: %s\n", e.what());
-        }
-    }
-
-    void processAudioChunk(WebSocketConnection& ws_conn) {
-        if (!ws_whisper_ctx) {
-            fprintf(stderr, "[WS] Warning: Whisper context not initialized\n");
-            return;
-        }
-
-        // Use a sliding window approach - keep last 1 second, process current 0.5 seconds
-        const size_t window_samples = WHISPER_SAMPLE_RATE;     // 1 second
-        const size_t process_samples = WHISPER_SAMPLE_RATE / 2; // 0.5 seconds
-
-        if (ws_conn.audio_buffer.size() < process_samples) {
-            return;
-        }
-
-        // Extract audio to process
-        std::vector<float> audio_chunk(ws_conn.audio_buffer.end() - process_samples, ws_conn.audio_buffer.end());
-
-        // Configure whisper parameters for real-time processing
-        whisper_full_params wparams = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
-        wparams.strategy = WHISPER_SAMPLING_GREEDY;
-        wparams.print_realtime = false;
-        wparams.print_progress = false;
-        wparams.print_timestamps = false;
-        wparams.print_special = false;
-        wparams.translate = false; // Default to no translation for real-time
-        wparams.language = "en"; // Default to English for real-time
-        wparams.n_threads = 2; // Limit threads for real-time
-        wparams.n_max_text_ctx = 64; // Small context for speed
-        wparams.temperature = 0.0f; // Greedy for consistency
-        wparams.no_speech_thold = 0.6f;
-        wparams.no_timestamps = true;
-        wparams.suppress_nst = true;
-
-        // Run transcription
-        if (whisper_full_parallel(ws_whisper_ctx, wparams, audio_chunk.data(), audio_chunk.size(), 1) == 0) {
-            // Extract transcription result
-            std::string transcription;
-            const int n_segments = whisper_full_n_segments(ws_whisper_ctx);
-            for (int i = 0; i < n_segments; ++i) {
-                const char* text = whisper_full_get_segment_text(ws_whisper_ctx, i);
-                if (text && strlen(text) > 0) {
-                    transcription += text;
-                }
-            }
-
-            // Send result if we have text
-            if (!transcription.empty()) {
-                // Clean up transcription
-                transcription.erase(0, transcription.find_first_not_of(" \t\n\r"));
-                transcription.erase(transcription.find_last_not_of(" \t\n\r") + 1);
-
-                if (!transcription.empty()) {
-                    sendTranscriptionResult(*ws_conn.ws_conn, transcription);
-                }
-            }
-        }
-
-        // Maintain sliding window - keep last 1 second of audio
-        if (ws_conn.audio_buffer.size() > window_samples) {
-            ws_conn.audio_buffer.erase(ws_conn.audio_buffer.begin(),
-                                      ws_conn.audio_buffer.end() - window_samples);
-        }
-    }
-
-    void sendTranscriptionResult(WSConnection& conn, const std::string& text) {
-        // Create JSON response matching brain.py expectations
-        json response = {
-            {"text", text},
-            {"timestamp", std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::system_clock::now().time_since_epoch()).count()},
-            {"is_streaming", true}
-        };
-
-        std::string response_str = response.dump();
-        fprintf(stderr, "[WS] Sending transcription: %s\n", text.c_str());
-
-        // Send as text message
-        conn.send(websocket::OPCODE_TEXT, reinterpret_cast<const uint8_t*>(response_str.c_str()), response_str.length());
-    }
-};
-
 int main(int argc, char ** argv) {
     whisper_params params;
     server_params sparams;
@@ -1140,40 +916,6 @@ int main(int argc, char ** argv) {
     // initialize openvino encoder. this has no effect on whisper.cpp builds that don't have OpenVINO configured
     whisper_ctx_init_openvino_encoder(ctx, nullptr, params.openvino_encode_device.c_str(), nullptr);
     whisper_ctx_init_openvino_encoder(hot_ctx, nullptr, params.openvino_encode_device.c_str(), nullptr);
-
-    // Sprint 8: Initialize WebSocket server for real-time streaming
-    fprintf(stderr, "[INIT] Initializing WebSocket server for real-time streaming...\n");
-
-    // Set up global WebSocket context for real-time transcription
-    ws_whisper_ctx = hot_ctx; // Use hot path context for WebSocket streaming
-
-    // Create WebSocket server with template parameters
-    // Using WhisperWebSocketHandler, char user data, non-segmented mode, 64KB buffer, max 10 connections
-    websocket::WSServer<WhisperWebSocketHandler, char, false, 65536, 10> ws_server;
-    WhisperWebSocketHandler ws_handler;
-
-    // Calculate WebSocket port (HTTP port + 1000, e.g., 8080 -> 9080)
-    int ws_port = sparams.port + 1000;
-
-    // Initialize WebSocket server
-    if (!ws_server.init(sparams.hostname.c_str(), ws_port, 10000, 60000)) { // 10s new conn timeout, 60s open conn timeout
-        fprintf(stderr, "[ERROR] Failed to initialize WebSocket server on %s:%d\n", sparams.hostname.c_str(), ws_port);
-        fprintf(stderr, "[ERROR] %s\n", ws_server.getLastError());
-        return 1;
-    }
-
-    fprintf(stderr, "[INFO] WebSocket server initialized on ws://%s:%d/hot_stream\n", sparams.hostname.c_str(), ws_port);
-    fflush(stderr);
-
-    // Start WebSocket server in a separate thread
-    std::thread ws_thread([&ws_server, &ws_handler]() {
-        fprintf(stderr, "[WS] WebSocket server thread started\n");
-        while (true) {
-            ws_server.poll(&ws_handler);
-            std::this_thread::sleep_for(std::chrono::milliseconds(1)); // Small delay to prevent CPU spinning
-        }
-    });
-    ws_thread.detach(); // Detach thread to run independently
 
     Server svr;
     svr.set_default_headers({{"Server", "whisper.cpp"},
@@ -1909,13 +1651,9 @@ int main(int argc, char ** argv) {
 
     // to make it ctrl+clickable:
     fprintf(stderr, "\n[INFO] Whisper server listening at http://%s:%d\n", sparams.hostname.c_str(), sparams.port);
-    fprintf(stderr, "[INFO] WebSocket real-time streaming at ws://%s:%d/hot_stream\n", sparams.hostname.c_str(), ws_port);
     fflush(stderr);
     fprintf(stderr, "[CONFIG] Server configuration:\n");
-    fprintf(stderr, "- HTTP Port: %d\n", sparams.port);
-    fprintf(stderr, "- WebSocket Port: %d\n", ws_port);
     fprintf(stderr, "- Model: %s\n", params.model.c_str());
-    fprintf(stderr, "- Hot Path Model: %s\n", hparams.model.c_str());
     fprintf(stderr, "- Diarization: %s\n", params.diarize ? "enabled" : "disabled");
     fprintf(stderr, "- Language: %s\n", params.language.c_str());
     fprintf(stderr, "- Public path: %s\n", sparams.public_path.c_str());
@@ -1924,9 +1662,6 @@ int main(int argc, char ** argv) {
     fprintf(stderr, "- Threads: %d\n", params.n_threads);
     fprintf(stderr, "- Read timeout: %d seconds\n", sparams.read_timeout);
     fprintf(stderr, "- Write timeout: %d seconds\n", sparams.write_timeout);
-    fprintf(stderr, "\n[READY] Server is ready to accept connections!\n");
-    fprintf(stderr, "- HTTP Endpoints: http://%s:%d/inference, /hot_stream\n", sparams.hostname.c_str(), sparams.port);
-    fprintf(stderr, "- WebSocket Streaming: ws://%s:%d/hot_stream\n", sparams.hostname.c_str(), ws_port);
     fflush(stderr);
 
     if (!svr.listen_after_bind())

@@ -1,0 +1,57 @@
+{
+  "environment": {
+    "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.35",
+    "machine": "x86_64",
+    "processor": "x86_64",
+    "python_version": "3.10.12",
+    "is_wsl": true,
+    "is_macos": false,
+    "is_m1_mac": false
+  },
+  "test_results": [
+    {
+      "filename": "short_speech.wav",
+      "test_name": "Primary Test: Short Speech (~0.5s)",
+      "latency_ms": 1.72,
+      "status_code": 200,
+      "segments_count": 0,
+      "has_transcription": false,
+      "response_data": {
+        "segments": [],
+        "buffer_size_ms": 500
+      },
+      "success": true
+    },
+    {
+      "filename": "medium_speech.wav",
+      "test_name": "Secondary Test: Medium Speech (~2s)",
+      "latency_ms": 1843.97,
+      "status_code": 200,
+      "segments_count": 0,
+      "has_transcription": false,
+      "response_data": {
+        "segments": [],
+        "buffer_size_ms": 200
+      },
+      "success": true
+    },
+    {
+      "filename": "silence.wav",
+      "test_name": "VAD Validation: Pure Silence",
+      "latency_ms": 2.09,
+      "status_code": 200,
+      "segments_count": 0,
+      "has_transcription": false,
+      "response_data": {
+        "segments": [],
+        "buffer_size_ms": 750
+      },
+      "success": true
+    }
+  ],
+  "sprint_1_1_success": false,
+  "primary_metric_achieved": false,
+  "issues": [
+    "Primary test produced no transcription"
+  ]
+}
