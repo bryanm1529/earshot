@@ -95,36 +95,49 @@ class FrontendWebSocketServer:
             logger.error(f"Failed to start frontend WebSocket server: {e}")
             raise
 
-    async def handle_client(self, websocket: websockets.WebSocketServerProtocol, path: str):
+    async def handle_client(self, websocket: websockets.WebSocketServerProtocol):
         """Handle new client connection"""
         client_addr = f"{websocket.remote_address[0]}:{websocket.remote_address[1]}"
-        logger.info(f"🔌 Frontend client connected: {client_addr}")
-
-        self.clients.add(websocket)
-
         try:
-            # Send initial status
-            await self.send_to_client(websocket, {
-                "type": "status",
-                "status": "connected",
-                "paused": self.is_paused,
-                "timestamp": int(time.time() * 1000)
-            })
+            logger.info(f"🔌 Frontend client connected: {client_addr}")
+            self.clients.add(websocket)
 
-            # Keep connection alive and handle incoming messages
-            async for message in websocket:
+            # send the initial status once
+            try:
+                await self.send_to_client(websocket, {
+                    "type": "status",
+                    "status": "connected",
+                    "paused": self.is_paused,
+                    "timestamp": int(time.time() * 1000)
+                })
+            except Exception as e:
+                logger.error(f"Failed to send initial status: {e}")
+                # swallow—don't abort the connection
+
+            # now drive the loop by reading recv()
+            while True:
+                try:
+                    message = await asyncio.wait_for(websocket.recv(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    # no data from client, but keep the connection alive
+                    continue
+                except websockets.exceptions.ConnectionClosedOK:
+                    logger.info(f"Client {client_addr} closed cleanly")
+                    break
+                except websockets.exceptions.ConnectionClosedError as e:
+                    logger.warning(f"Connection to {client_addr} closed with error: {e}")
+                    break
+
+                # if we got here, we actually have a message
                 try:
                     data = json.loads(message)
                     await self.handle_client_message(websocket, data)
                 except json.JSONDecodeError:
-                    logger.warning(f"Invalid JSON from client {client_addr}: {message}")
+                    logger.warning(f"Invalid JSON from {client_addr}: {message}")
                 except Exception as e:
                     logger.error(f"Error handling message from {client_addr}: {e}")
-
-        except websockets.exceptions.ConnectionClosed:
-            logger.info(f"🔌 Frontend client disconnected: {client_addr}")
-        except Exception as e:
-            logger.error(f"Error handling client {client_addr}: {e}")
+        except Exception:
+            logger.exception("❌ Unhandled error in WebSocket handler")
         finally:
             self.clients.discard(websocket)
 
@@ -157,10 +170,11 @@ class FrontendWebSocketServer:
             message = json.dumps(data)
             await websocket.send(message)
         except websockets.exceptions.ConnectionClosed:
-            # Client disconnected, remove from set
+            # peer went away
             self.clients.discard(websocket)
         except Exception as e:
-            logger.error(f"Error sending to client: {e}")
+            logger.error(f"Unexpected error while sending to client: {e}", exc_info=True)
+            # swallow—don't re-raise
             self.clients.discard(websocket)
 
     async def broadcast_advisor_keywords(self, text: str):

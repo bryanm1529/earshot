@@ -1,0 +1,16 @@
+
+> meetily-frontend@0.0.4 dev
+> next dev -p 3118
+
+  ▲ Next.js 14.2.25
+  - Local:        http://localhost:3118
+
+ ✓ Starting...
+ ✓ Ready in 1778ms
+ ○ Compiling /hud ...
+ ✓ Compiled /hud in 4.1s (544 modules)
+ GET /hud 200 in 4364ms
+ ✓ Compiled in 359ms (260 modules)
+ ✓ Compiled / in 445ms (543 modules)
+ GET / 200 in 600ms
+[?25h
