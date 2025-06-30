@@ -901,8 +901,8 @@ private:
             ws_conn->audio_buffer[prev_size + i] = static_cast<float>(audio_data[i]) / 32768.0f;
         }
 
-        // Process if we have enough audio (e.g., 0.5 seconds worth)
-        const size_t min_samples = WHISPER_SAMPLE_RATE / 2; // 0.5 seconds
+        // Process if we have enough audio (1.1 seconds to ensure > 1000ms)
+        const size_t min_samples = WHISPER_SAMPLE_RATE + (WHISPER_SAMPLE_RATE / 10); // 1.1 seconds
         if (ws_conn->audio_buffer.size() >= min_samples) {
             processAudioChunk(*ws_conn);
         }
@@ -935,9 +935,9 @@ private:
             return;
         }
 
-        // Use a sliding window approach - keep last 1 second, process current 0.5 seconds
-        const size_t window_samples = WHISPER_SAMPLE_RATE;     // 1 second
-        const size_t process_samples = WHISPER_SAMPLE_RATE / 2; // 0.5 seconds
+                // Use a sliding window approach - keep last 2 seconds, process current 1.1 seconds
+        const size_t window_samples = WHISPER_SAMPLE_RATE * 2; // 2 seconds
+        const size_t process_samples = WHISPER_SAMPLE_RATE + (WHISPER_SAMPLE_RATE / 10); // 1.1 seconds
 
         if (ws_conn.audio_buffer.size() < process_samples) {
             return;
