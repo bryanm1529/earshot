@@ -1692,7 +1692,8 @@ int main(int argc, char ** argv) {
 
         // Use local audio buffer for thread safety
         static thread_local std::vector<float> audio_buffer;
-        const int MIN_AUDIO_LENGTH_MS = 1000;  // minimum 1 second of audio
+        // Use consistent audio length with WebSocket handler (1.1 seconds)
+        const size_t min_samples = WHISPER_SAMPLE_RATE + (WHISPER_SAMPLE_RATE / 10); // 1.1 seconds
 
         if (!req.has_file("audio")) {
             res.set_content("{\"error\":\"no audio data\"}", "application/json");
@@ -1705,9 +1706,6 @@ int main(int argc, char ** argv) {
 
         // Add new samples to buffer
         audio_buffer.insert(audio_buffer.end(), audio_data, audio_data + n_samples);
-
-        // Calculate minimum required samples
-        const int min_samples = (MIN_AUDIO_LENGTH_MS * 16000) / 1000;
 
         json response;
         response["segments"] = json::array();

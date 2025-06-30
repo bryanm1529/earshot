@@ -1,8 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { listen } from '@tauri-apps/api/event';
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { useAdvisorStream } from '../../hooks/useAdvisorStream';
 
 interface TranscriptWord {
   id: string;
@@ -12,76 +11,50 @@ interface TranscriptWord {
   fadeStartTime?: number;
 }
 
-interface TranscriptUpdate {
-  text: string;
-  timestamp: string;
-  source: string;
-}
-
 export default function HUD() {
   const [words, setWords] = useState<TranscriptWord[]>([]);
-  const [isActive, setIsActive] = useState(false);
-  const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connected' | 'error'>('disconnected');
   const wordCounterRef = useRef(0);
 
+  // Sprint 9: Use WebSocket hook instead of Tauri events
+  const {
+    isConnected,
+    isPaused,
+    lastMessage,
+    lastTimestamp,
+    connectionAttempts,
+    sendPause,
+    sendResume
+  } = useAdvisorStream();
+
+  // Sprint 9: Process advisor keywords from WebSocket
   useEffect(() => {
-    const currentWindow = getCurrentWindow();
+    if (lastMessage && lastTimestamp) {
+      console.log('HUD: Received advisor keywords:', lastMessage);
+      addTranscriptText(lastMessage, 0.9); // High confidence for advisor keywords
+    }
+  }, [lastMessage, lastTimestamp]);
 
-    // Listen for control messages from main window and native audio events
-    const setupEventListeners = async () => {
-      // Listen for start/stop transcription events from main window
-      const unlisten1 = await listen('start-transcription', () => {
-        console.log('HUD: Start transcription received');
-        setIsActive(true);
-        setConnectionStatus('connected');
-      });
-
-      const unlisten2 = await listen('stop-transcription', () => {
-        console.log('HUD: Stop transcription received');
-        setIsActive(false);
-        setConnectionStatus('disconnected');
-      });
-
-      // Listen for native transcript updates from Rust backend
-      const unlisten3 = await listen('hud-transcript-update', (event: any) => {
-        console.log('HUD: Received native transcript update:', event.payload);
-        const update = event.payload as TranscriptUpdate;
-        if (update && update.text) {
-          addTranscriptText(update.text, 0.8); // Default confidence for native transcripts
+  // Hotkey handling for pause/resume (Sprint 9 requirement)
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Check for Caps Lock key (keyCode 20) or can be configured for other keys
+      if (event.code === 'CapsLock') {
+        event.preventDefault();
+        if (isPaused) {
+          sendResume();
+          console.log('HUD: System resumed via hotkey');
+        } else {
+          sendPause();
+          console.log('HUD: System paused via hotkey');
         }
-      });
-
-      // Listen for status updates from native audio capture
-      const unlisten4 = await listen('hud-status', (event: any) => {
-        console.log('HUD: Received status update:', event.payload);
-        const status = event.payload as string;
-        if (status === 'connected') {
-          setConnectionStatus('connected');
-          setIsActive(true);
-        } else if (status === 'disconnected') {
-          setConnectionStatus('disconnected');
-          setIsActive(false);
-        }
-      });
-
-      // Listen for errors from native audio capture
-      const unlisten5 = await listen('hud-error', (event: any) => {
-        console.error('HUD: Received error from native audio:', event.payload);
-        setConnectionStatus('error');
-        // You could also show error messages in the HUD if desired
-      });
-
-      return () => {
-        unlisten1();
-        unlisten2();
-        unlisten3();
-        unlisten4();
-        unlisten5();
-      };
+      }
     };
 
-    setupEventListeners();
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isPaused, sendPause, sendResume]);
 
+  useEffect(() => {
     // Auto-fade old words
     const fadeInterval = setInterval(() => {
       const now = Date.now();
@@ -140,6 +113,21 @@ export default function HUD() {
     return 'text-red-400';
   };
 
+  // Sprint 9: Updated status logic for WebSocket connection
+  const getConnectionStatus = () => {
+    if (!isConnected && connectionAttempts > 0) return 'error';
+    if (isConnected) return 'connected';
+    return 'disconnected';
+  };
+
+  const getStatusText = () => {
+    if (isPaused) return 'System Paused';
+    if (!isConnected) return connectionAttempts > 0 ? 'Reconnecting...' : 'Connecting...';
+    return 'Advisor Active';
+  };
+
+  const connectionStatus = getConnectionStatus();
+
   return (
     <div className="w-full h-full bg-black bg-opacity-20 backdrop-blur-sm border border-gray-600 border-opacity-30 rounded-lg p-4 overflow-hidden">
       {/* Status Bar */}
@@ -150,8 +138,14 @@ export default function HUD() {
             connectionStatus === 'error' ? 'bg-red-500' : 'bg-gray-500'
           }`} />
           <span className="text-gray-300">
-            {isActive ? 'System Audio Active' : 'Standby'}
+            {getStatusText()}
           </span>
+          {/* Sprint 9: Show connection attempts if reconnecting */}
+          {connectionAttempts > 0 && !isConnected && (
+            <span className="text-gray-500 text-xs">
+              (attempt {connectionAttempts})
+            </span>
+          )}
         </div>
         <div className="text-gray-400">
           {words.length} words
@@ -162,7 +156,9 @@ export default function HUD() {
       <div className="flex flex-wrap gap-2 items-center min-h-[60px]">
         {words.length === 0 && (
           <div className="text-gray-400 text-center w-full">
-            {isActive ? 'Listening to system audio...' : 'HUD Ready - Click "Start Recording" to begin'}
+            {isPaused ? 'System Paused - Press Caps Lock to resume' :
+             isConnected ? 'Ready - Ask a question to see advisor keywords...' :
+             'Connecting to Cognitive Engine...'}
           </div>
         )}
 
@@ -190,12 +186,23 @@ export default function HUD() {
       </div>
 
       {/* Live Activity Indicator */}
-      {isActive && (
+      {isConnected && !isPaused && (
         <div className="absolute bottom-2 right-2">
           <div className="flex space-x-1">
             <div className="w-1 h-4 bg-blue-500 rounded animate-pulse" style={{ animationDelay: '0ms' }} />
             <div className="w-1 h-4 bg-blue-500 rounded animate-pulse" style={{ animationDelay: '200ms' }} />
             <div className="w-1 h-4 bg-blue-500 rounded animate-pulse" style={{ animationDelay: '400ms' }} />
+          </div>
+        </div>
+      )}
+
+      {/* Sprint 9: Pause indicator */}
+      {isPaused && (
+        <div className="absolute bottom-2 right-2">
+          <div className="flex items-center space-x-2 text-orange-400 text-sm">
+            <div className="w-2 h-4 bg-orange-400 rounded"></div>
+            <div className="w-2 h-4 bg-orange-400 rounded"></div>
+            <span className="text-xs">PAUSED</span>
           </div>
         </div>
       )}

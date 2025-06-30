@@ -1,0 +1,26 @@
+# Sprint 9: Cognitive Co-Pilot Configuration
+# Copy this file to .copilotrc and modify as needed for your setup
+
+# Ollama Model Configuration
+# Choose your preferred model for the advisor system
+export COPILOT_ADVISOR_MODEL="llama3:8b"      # Default: balanced performance
+# export COPILOT_ADVISOR_MODEL="phi3:mini"    # Faster, smaller model
+# export COPILOT_ADVISOR_MODEL="llama3:70b"   # Highest quality (requires more RAM)
+
+# System Components
+export COPILOT_CHRONICLER_ENABLED="true"      # Enable conversation memory
+
+# Network Configuration
+export COPILOT_WHISPER_HOST="127.0.0.1"
+export COPILOT_WHISPER_PORT="9080"
+export COPILOT_OLLAMA_HOST="127.0.0.1"
+export COPILOT_OLLAMA_PORT="11434"
+export COPILOT_FRONTEND_HOST="127.0.0.1"
+export COPILOT_FRONTEND_PORT="9082"
+
+# Performance Tuning (optional)
+# export COPILOT_WHISPER_THREADS="4"          # More threads for faster transcription
+# export COPILOT_ADVISOR_TIMEOUT="1.0"        # Longer timeout for complex queries
+
+# Debug Mode (optional)
+# export COPILOT_DEBUG="true"                 # Enable verbose logging
