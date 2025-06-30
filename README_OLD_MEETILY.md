@@ -189,14 +189,6 @@ cd backend
 - **Audio Pipeline**: Test manually with `ffmpeg ... | websocat ...`
 - **Missing CMake**: Install via Chocolatey or cmake.org
 - **Port Conflicts**: Check with `netstat -an | findstr ":9080"`
-  ```powershell
-  # Check all system ports
-  netstat -an | findstr ":9080"   # Whisper HTTP
-  netstat -an | findstr ":10080"  # Whisper WebSocket
-  netstat -an | findstr ":9082"   # Brain WebSocket
-  netstat -an | findstr ":3118"   # Frontend
-  netstat -an | findstr ":11434"  # Ollama
-  ```
 
 ### General Issues
 - **Model Download**: Ensure Ollama is running and models are pulled

@@ -63,27 +63,71 @@ trap {
     exit 1
 }
 
-# Configuration & Paths
+# Configuration Loading Function
+function Load-DotEnvFile($filePath) {
+    if (Test-Path $filePath) {
+        Write-ColorOutput "📋 Loading configuration from $filePath" "Green"
+        Get-Content $filePath | ForEach-Object {
+            if ($_ -match '^([^#].*)=(.*)$') {
+                $name = $matches[1].Trim()
+                $value = $matches[2].Trim().Trim('"').Trim("'")
+                Set-Item -Path "env:$name" -Value $value
+                Write-ColorOutput "   Set $name = $value" "Gray"
+            }
+        }
+        return $true
+    }
+    return $false
+}
+
+# Load configuration from various sources
+$configLoaded = $false
+
+# 1. Try to load .env file (recommended for Windows)
+if (Load-DotEnvFile ".env") {
+    $configLoaded = $true
+}
+
+# 2. Check for .copilotrc and convert to .env format
+if (!$configLoaded -and (Test-Path ".copilotrc")) {
+    Write-ColorOutput "📋 Found .copilotrc, converting to environment variables" "Green"
+    Get-Content ".copilotrc" | ForEach-Object {
+        if ($_ -match '^export\s+([^=]+)=(.*)$') {
+            $name = $matches[1].Trim()
+            $value = $matches[2].Trim().Trim('"').Trim("'")
+            Set-Item -Path "env:$name" -Value $value
+            Write-ColorOutput "   Set $name = $value" "Gray"
+        }
+    }
+    $configLoaded = $true
+}
+
+if (!$configLoaded) {
+    Write-ColorOutput "📋 No configuration file found, using defaults" "Yellow"
+}
+
+# Set configuration defaults with environment variable overrides
+$env:COPILOT_ADVISOR_MODEL = if ($env:COPILOT_ADVISOR_MODEL) { $env:COPILOT_ADVISOR_MODEL } else { "llama3:8b" }
+$env:COPILOT_CHRONICLER_ENABLED = if ($env:COPILOT_CHRONICLER_ENABLED) { $env:COPILOT_CHRONICLER_ENABLED } else { "true" }
+$env:COPILOT_WHISPER_HOST = if ($env:COPILOT_WHISPER_HOST) { $env:COPILOT_WHISPER_HOST } else { "127.0.0.1" }
+$env:COPILOT_WHISPER_PORT = if ($env:COPILOT_WHISPER_PORT) { $env:COPILOT_WHISPER_PORT } else { "9080" }
+$env:COPILOT_OLLAMA_HOST = if ($env:COPILOT_OLLAMA_HOST) { $env:COPILOT_OLLAMA_HOST } else { "127.0.0.1" }
+$env:COPILOT_OLLAMA_PORT = if ($env:COPILOT_OLLAMA_PORT) { $env:COPILOT_OLLAMA_PORT } else { "11434" }
+$env:COPILOT_FRONTEND_HOST = if ($env:COPILOT_FRONTEND_HOST) { $env:COPILOT_FRONTEND_HOST } else { "127.0.0.1" }
+$env:COPILOT_FRONTEND_PORT = if ($env:COPILOT_FRONTEND_PORT) { $env:COPILOT_FRONTEND_PORT } else { "9082" }
+
+# Configuration & Paths using environment variables
 $WhisperExe = ".\backend\whisper.cpp\build\bin\Release\server.exe"
 $WhisperModelPath = ".\backend\whisper.cpp\models\ggml-tiny.en-q5_1.bin"
 $BrainScript = ".\backend\brain.py"
 $PythonExe = ".\.venv\Scripts\python.exe"
-$WhisperHost = "127.0.0.1"
-$WhisperPort = 9080
-$WhisperWsPort = 10080
+$WhisperHost = $env:COPILOT_WHISPER_HOST
+$WhisperPort = [int]$env:COPILOT_WHISPER_PORT
+$WhisperWsPort = $WhisperPort + 1000  # Follow same convention as Linux version
 $WhisperWsUrl = "ws://${WhisperHost}:${WhisperWsPort}/hot_stream"
-$FrontendPort = 3118
-$OllamaHost = "127.0.0.1"
-$OllamaPort = 11434
-
-# Load configuration if .copilotrc exists
-if (Test-Path ".copilotrc") {
-    Write-ColorOutput "📋 Loading configuration from .copilotrc" "Green"
-    # Note: PowerShell doesn't directly source bash files, but we'll use defaults
-    Write-ColorOutput "   Using default Windows configuration" "Gray"
-} else {
-    Write-ColorOutput "📋 No .copilotrc found, using Windows defaults" "Yellow"
-}
+$FrontendPort = 3118  # Next.js dev server port (consistent with package.json)
+$OllamaHost = $env:COPILOT_OLLAMA_HOST
+$OllamaPort = [int]$env:COPILOT_OLLAMA_PORT
 
 # Banner
 Write-ColorOutput "" "Blue"
@@ -94,10 +138,13 @@ Write-ColorOutput "==================================================" "Blue"
 Write-ColorOutput "" "Blue"
 
 Write-ColorOutput "🔧 Configuration:" "Blue"
+Write-ColorOutput "   Advisor Model: $env:COPILOT_ADVISOR_MODEL" "Gray"
+Write-ColorOutput "   Chronicler: $env:COPILOT_CHRONICLER_ENABLED" "Gray"
 Write-ColorOutput "   Whisper Server: ${WhisperHost}:${WhisperPort}" "Gray"
 Write-ColorOutput "   WebSocket Stream: ${WhisperHost}:${WhisperWsPort}" "Gray"
 Write-ColorOutput "   Ollama: ${OllamaHost}:${OllamaPort}" "Gray"
 Write-ColorOutput "   Frontend: http://localhost:${FrontendPort}" "Gray"
+Write-ColorOutput "   Cognitive Engine WebSocket: $env:COPILOT_FRONTEND_HOST:$env:COPILOT_FRONTEND_PORT" "Gray"
 
 # Check dependencies
 Write-ColorOutput "" "Blue"
@@ -168,6 +215,34 @@ catch {
     }
 }
 
+# Check for required models
+Write-ColorOutput "" "Blue"
+Write-ColorOutput "📦 Checking models..." "Blue"
+try {
+    $modelsResponse = Invoke-RestMethod -Uri "http://${OllamaHost}:${OllamaPort}/api/tags" -Method Get -TimeoutSec 5 -ErrorAction Stop
+    $availableModels = $modelsResponse.models | ForEach-Object { $_.name }
+
+    if ($availableModels -contains $env:COPILOT_ADVISOR_MODEL) {
+        Write-ColorOutput "   ✅ Model $env:COPILOT_ADVISOR_MODEL available" "Green"
+    } else {
+        Write-ColorOutput "⚠️  Model $env:COPILOT_ADVISOR_MODEL not found, pulling..." "Yellow"
+        try {
+            $pullProcess = Start-Process -FilePath "ollama" -ArgumentList "pull", $env:COPILOT_ADVISOR_MODEL -WindowStyle Hidden -Wait -PassThru
+            if ($pullProcess.ExitCode -eq 0) {
+                Write-ColorOutput "   ✅ Model $env:COPILOT_ADVISOR_MODEL downloaded successfully" "Green"
+            } else {
+                Write-ColorOutput "⚠️  Failed to download model, continuing anyway..." "Yellow"
+            }
+        }
+        catch {
+            Write-ColorOutput "⚠️  Could not download model: $($_.Exception.Message)" "Yellow"
+        }
+    }
+}
+catch {
+    Write-ColorOutput "⚠️  Could not check models, continuing..." "Yellow"
+}
+
 # Start services
 Write-ColorOutput "" "Blue"
 Write-ColorOutput "🚀 Starting services..." "Blue"
@@ -220,8 +295,8 @@ try {
         "--whisper-port", $WhisperWsPort.ToString(),
         "--ollama-host", $OllamaHost,
         "--ollama-port", $OllamaPort.ToString(),
-        "--frontend-host", "127.0.0.1",
-        "--frontend-port", "9082"
+        "--frontend-host", $env:COPILOT_FRONTEND_HOST,
+        "--frontend-port", $env:COPILOT_FRONTEND_PORT
     )
 
     $Script:BrainProcess = Start-Process -FilePath $PythonExe -ArgumentList $brainArgs -WindowStyle Hidden -PassThru -WorkingDirectory ".\backend"
@@ -339,17 +414,61 @@ try {
     Write-ColorOutput "Audio pipeline: ffmpeg -> websocat -> Whisper" "Gray"
     Write-ColorOutput "Audio source: $audioDevice" "Gray"
 
-    # Create the pipeline using PowerShell job
+    # Create the pipeline using direct piping for better reliability
+    Write-ColorOutput "Starting audio pipeline components..." "Gray"
+
+    # Build the pipeline command
+    $ffmpegCmd = "ffmpeg " + ($ffmpegArgs -join " ")
+    $websocatCmd = "websocat " + ($websocatArgs -join " ")
+    $pipelineCmd = "$ffmpegCmd | $websocatCmd"
+
+    Write-ColorOutput "Pipeline command: $pipelineCmd" "Gray"
+
+    # Start the pipeline as a background job with proper error handling
     $pipelineJob = Start-Job -ScriptBlock {
-        param($ffmpegArgs, $websocatArgs)
+        param($pipelineCommand, $ffmpegArgs, $websocatArgs, $WhisperWsUrl)
 
-        $ffmpegProcess = Start-Process -FilePath "ffmpeg" -ArgumentList $ffmpegArgs -NoNewWindow -RedirectStandardOutput -PassThru
-        $websocatProcess = Start-Process -FilePath "websocat" -ArgumentList $websocatArgs -NoNewWindow -RedirectStandardInput -PassThru
+        try {
+            # Start ffmpeg process
+            $ffmpegProcessInfo = New-Object System.Diagnostics.ProcessStartInfo
+            $ffmpegProcessInfo.FileName = "ffmpeg"
+            $ffmpegProcessInfo.Arguments = $ffmpegArgs -join " "
+            $ffmpegProcessInfo.UseShellExecute = $false
+            $ffmpegProcessInfo.RedirectStandardOutput = $true
+            $ffmpegProcessInfo.RedirectStandardError = $true
+            $ffmpegProcess = [System.Diagnostics.Process]::Start($ffmpegProcessInfo)
 
-        # Pipe ffmpeg output to websocat input
-        $ffmpegProcess.StandardOutput.BaseStream.CopyTo($websocatProcess.StandardInput.BaseStream)
+            # Start websocat process
+            $websocatProcessInfo = New-Object System.Diagnostics.ProcessStartInfo
+            $websocatProcessInfo.FileName = "websocat"
+            $websocatProcessInfo.Arguments = $websocatArgs -join " "
+            $websocatProcessInfo.UseShellExecute = $false
+            $websocatProcessInfo.RedirectStandardInput = $true
+            $websocatProcessInfo.RedirectStandardError = $true
+            $websocatProcess = [System.Diagnostics.Process]::Start($websocatProcessInfo)
 
-    } -ArgumentList $ffmpegArgs, $websocatArgs
+            # Pipe data between processes
+            $buffer = New-Object byte[] 4096
+            $ffmpegStream = $ffmpegProcess.StandardOutput.BaseStream
+            $websocatStream = $websocatProcess.StandardInput.BaseStream
+
+            while (!$ffmpegProcess.HasExited -and !$websocatProcess.HasExited) {
+                $bytesRead = $ffmpegStream.Read($buffer, 0, $buffer.Length)
+                if ($bytesRead -gt 0) {
+                    $websocatStream.Write($buffer, 0, $bytesRead)
+                    $websocatStream.Flush()
+                }
+            }
+        }
+        catch {
+            Write-Error "Pipeline error: $($_.Exception.Message)"
+            throw
+        }
+        finally {
+            if ($ffmpegProcess -and !$ffmpegProcess.HasExited) { $ffmpegProcess.Kill() }
+            if ($websocatProcess -and !$websocatProcess.HasExited) { $websocatProcess.Kill() }
+        }
+    } -ArgumentList $pipelineCmd, $ffmpegArgs, $websocatArgs, $WhisperWsUrl
 
     # Monitor the system
     Write-ColorOutput "🔄 System monitoring active. Audio streaming pipeline running..." "Blue"

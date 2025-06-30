@@ -181,6 +181,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
 - **HUD Interface**: http://localhost:3118/hud
 - **Whisper Server**: http://127.0.0.1:9080
 - **WebSocket Stream**: ws://127.0.0.1:10080/hot_stream
+- **Cognitive Engine**: ws://127.0.0.1:9082
 
 ### Stopping the System
 ```powershell

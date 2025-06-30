@@ -204,16 +204,27 @@ catch {
 # Create configuration file if it doesn't exist
 Write-ColorOutput "" "Blue"
 Write-ColorOutput "⚙️  Configuration setup..." "Blue"
-if (!(Test-Path ".copilotrc")) {
-    if (Test-Path ".copilotrc.example") {
+
+# Prefer .env for Windows, but support .copilotrc for compatibility
+if (!(Test-Path ".env") -and !(Test-Path ".copilotrc")) {
+    if (Test-Path ".env.example") {
+        Copy-Item ".env.example" ".env"
+        Write-ColorOutput "   ✅ Configuration file created from .env.example" "Green"
+        Write-ColorOutput "   Edit .env to customize settings (recommended for Windows)" "Gray"
+    } elseif (Test-Path ".copilotrc.example") {
         Copy-Item ".copilotrc.example" ".copilotrc"
-        Write-ColorOutput "   ✅ Configuration file created from example" "Green"
+        Write-ColorOutput "   ✅ Configuration file created from .copilotrc.example" "Green"
         Write-ColorOutput "   Edit .copilotrc to customize settings" "Gray"
     } else {
         Write-ColorOutput "   ℹ️  No example configuration found" "Cyan"
     }
 } else {
-    Write-ColorOutput "   ✅ Configuration file exists" "Green"
+    if (Test-Path ".env") {
+        Write-ColorOutput "   ✅ .env configuration file exists" "Green"
+    }
+    if (Test-Path ".copilotrc") {
+        Write-ColorOutput "   ✅ .copilotrc configuration file exists" "Green"
+    }
 }
 
 # Summary
