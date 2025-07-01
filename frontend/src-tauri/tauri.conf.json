@@ -1,20 +1,16 @@
 {
     "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-    "productName": "meetily-frontend",
-    "version": "0.0.4",
-    "identifier": "com.meetily.ai",
+    "productName": "earshot-copilot",
+    "version": "0.1.0",
+    "identifier": "com.earshot.copilot",
     "build": {
-        "frontendDist": "../out",
-        "devUrl": "http://localhost:3118",
-        "beforeDevCommand": "npm run dev",
-        "beforeBuildCommand": "npm run build"
+        "frontendDist": "../out"
     },
-
     "app": {
         "windows": [
             {
                 "label": "main",
-                "title": "Earshot - Real-time Transcription",
+                "title": "Co-Pilot Control",
                 "width": 400,
                 "height": 300,
                 "resizable": true,
@@ -26,6 +22,7 @@
             {
                 "label": "hud",
                 "title": "Earshot HUD",
+                "url": "/hud",
                 "width": 800,
                 "height": 120,
                 "resizable": false,
@@ -39,69 +36,12 @@
                 "visible": false
             }
         ],
-        "macOSPrivateApi": true,
         "security": {
             "csp": {
                 "default-src": "'self'",
-                "img-src": "'self' asset: https://asset.localhost data:",
-                "connect-src": "'self' http://localhost:11434 http://localhost:5167 http://localhost:8178 http://localhost:8080 ws://localhost:8080 ws://localhost:9082 https://api.ollama.ai"
-            },
-            "assetProtocol": {
-                "enable": true,
-                "scope": [
-                    "$APPDATA/**"
-                ]
-            },
-            "capabilities": [
-                {
-                    "identifier": "main",
-                    "description": "Main window capability with file system and media access",
-                    "windows": ["main"],
-                    "permissions": [
-                        "fs:default",
-                        "fs:allow-read-file",
-                        "fs:read-all",
-                        "fs:write-all",
-                        "fs:allow-app-read",
-                        "fs:allow-app-write",
-                        "fs:allow-download-write",
-                        "fs:allow-download-read",
-                        "fs:scope-download",
-                        "core:path:default",
-                        "core:event:default",
-                        "core:window:default",
-                        "core:window:allow-create",
-                        "core:window:allow-show",
-                        "core:window:allow-hide",
-                        "core:window:allow-set-always-on-top",
-                        "core:window:allow-set-position",
-                        "core:window:allow-set-size",
-                        "core:app:default",
-                        "core:resources:default",
-                        "core:menu:default",
-                        "core:tray:default",
-                        "core:window:allow-set-title",
-                        {
-                            "identifier": "fs:scope",
-                            "allow": [{ "path": "$APPDATA/*" }]
-                        }
-                    ]
-                },
-                {
-                    "identifier": "hud",
-                    "description": "HUD window capability for real-time transcription display",
-                    "windows": ["hud"],
-                    "permissions": [
-                        "core:event:default",
-                        "core:window:default",
-                        "core:window:allow-set-always-on-top",
-                        "core:window:allow-set-position",
-                        "core:window:allow-show",
-                        "core:window:allow-hide",
-                        "core:app:default"
-                    ]
-                }
-            ]
+                "img-src": "'self' asset: data:",
+                "connect-src": "'self' ws://localhost:9082"
+            }
         }
     },
     "bundle": {

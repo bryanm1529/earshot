@@ -1,217 +1,172 @@
 # 🧠 Earshot Cognitive Co-Pilot
 
-> **Real-time AI-powered conversational assistance for live audio streams**
+> **Python-Native Real-time AI Assistant for Live Audio Streams**
 
-A production-ready cognitive co-pilot system that provides intelligent, context-aware assistance during conversations, meetings, and presentations. Built with privacy-first local processing and designed for daily use.
+A streamlined cognitive co-pilot system that provides intelligent, context-aware assistance during conversations, meetings, and presentations. Built with a robust Python-native architecture that eliminates complex dependencies and Just Works™ on Windows.
 
-[![Windows Support](https://img.shields.io/badge/Windows-Native-blue?logo=windows&logoColor=white)](WINDOWS_MIGRATION_GUIDE.md)
-[![Linux Support](https://img.shields.io/badge/Linux-WSL-green?logo=linux&logoColor=white)](#)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE.md)
+[![Windows Native](https://img.shields.io/badge/Windows-Native-blue?logo=windows&logoColor=white)](#)
 [![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python&logoColor=white)](#)
+[![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE.md)
 
 ## ✨ Features
 
-- **🎤 Real-time Audio Processing**: Live transcription using Whisper.cpp with GPU acceleration
+- **🎤 Real-time Audio Processing**: Live transcription using Whisper CLI with subprocess management
 - **🧠 Intelligent Question Detection**: AI-powered regex patterns for instant question recognition
 - **💡 Contextual Assistance**: LLM-powered responses using Ollama with conversation memory
 - **🌐 WebSocket Integration**: Real-time communication with frontend HUD interface
-- **🖥️ Cross-Platform**: Native Windows support + Linux/WSL compatibility
+- **🖥️ Windows Native**: Robust, simplified architecture with zero C++ networking issues
 - **🔒 Privacy-First**: All processing happens locally - no cloud dependencies
-- **⚡ Low Latency**: Sub-second response times with optimized pipeline
+- **⚡ Low Latency**: Sub-second response times with optimized Python pipeline
 - **📊 Production Ready**: Robust error handling, monitoring, and graceful shutdown
 
 ## 🚀 Quick Start
 
-### Windows (Native) - **Recommended**
+### Two-Part Launch Process
 
+**Part 1: Start Backend (Headless Services)**
 ```powershell
-# 1. Clone the repository
-git clone https://github.com/your-username/earshot-copilot.git
-cd earshot-copilot
-
-# 2. Run setup (one-time)
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\setup_windows.ps1
-
-# 3. Build components
-cd backend
-.\build_whisper.cmd tiny.en
-cd ..
-
-# 4. Start the system
-.\start_native.ps1
+# Terminal 1: Start the Python-native backend
+.\start_simple.ps1
 ```
 
-### Linux/WSL
+**Part 2: Start Frontend (Visual HUD)**
+```powershell
+# Terminal 2: Start the Tauri HUD (when backend is ready)
+.\start_frontend.ps1
+```
 
-```bash
-# 1. Clone the repository
+### One-Time Setup
+```powershell
+# 1. Clone and setup
 git clone https://github.com/your-username/earshot-copilot.git
 cd earshot-copilot
+.\setup_windows.ps1
 
-# 2. Start the system
-./start_copilot.sh
+# 2. Install frontend dependencies
+cd frontend
+pnpm install
 ```
 
 ## 📋 Prerequisites
 
-### Windows
-- Windows 10/11 (64-bit)
-- Python 3.10+ (with PATH configuration)
-- Node.js LTS + pnpm
-- Rust toolchain + Tauri CLI
-- Visual Studio Build Tools + CMake
-- CUDA Toolkit (optional for GPU acceleration)
-- websocat, FFmpeg, Ollama
+- **Windows 10/11** (64-bit)
+- **Python 3.10+** (with PATH configuration)
+- **Node.js LTS + pnpm** (for frontend)
+- **Rust + Tauri CLI** (for HUD)
+- **FFmpeg** (for audio capture)
+- **Ollama** (for local LLM)
+- **VB-Audio Virtual Cable** (for audio routing)
 
-### Linux/WSL
-- Python 3.10+
-- Node.js 18+
-- FFmpeg
-- Ollama
-- Whisper.cpp build dependencies
-
-📖 **Detailed installation guides:**
-- [**Windows Migration Guide**](WINDOWS_MIGRATION_GUIDE.md) - Complete Windows setup
-- [Backend README](backend/README.md) - Detailed backend configuration
-- [Frontend README](frontend/README.md) - Frontend development setup
-
-## 🏗️ System Architecture
+## 🏗️ Python-Native Architecture
 
 ```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Audio Input   │───▶│  Whisper Server  │───▶│ Cognitive Engine│
-│ (Microphone/    │    │  (Speech-to-Text)│    │   (brain.py)    │
-│  System Audio)  │    └──────────────────┘    └─────────────────┘
-└─────────────────┘                                      │
-                                                         │
-┌─────────────────┐    ┌──────────────────┐             │
-│  Frontend HUD   │◄───│  WebSocket API   │◄────────────┘
-│ (Next.js/Tauri) │    │   (Real-time)    │
-└─────────────────┘    └──────────────────┘
-                                 │
-                                 ▼
-                       ┌──────────────────┐
-                       │  Ollama LLM      │
-                       │ (Local Models)   │
-                       └──────────────────┘
+Backend (Headless)          Frontend (Visual)
+├── 🎤 Audio (ffmpeg)       ├── 🪟 Tauri HUD Window
+├── 🗣️ Whisper CLI          ├── ⚡ React UI
+├── 🤖 Chronicler           ├── 🔌 WebSocket Client
+├── 💡 Advisor (Ollama)     └── 🎯 Overlay Display
+├── 🌐 WebSocket Server
+└── 📊 Process Management
 ```
 
-### Core Components
+### Strategic Pivot Benefits
 
-1. **Audio Pipeline**: FFmpeg → websocat → Whisper WebSocket
-2. **Whisper Server**: Local speech-to-text with hot stream API
-3. **Cognitive Engine**: Python-based AI orchestrator with WebSocket server
-4. **Frontend**: Tauri desktop app with Next.js UI
-5. **LLM Integration**: Ollama for local language model inference
+- **🚫 ZERO C++ networking issues** - All handled in Python
+- **🔧 Robust process management** - Python asyncio handles everything
+- **🐛 Simpler debugging** - One backend log stream
+- **🏗️ Modular design** - Backend/frontend completely separate
+- **🪟 Windows native** - No cross-platform compatibility hell
 
 ## 🔧 Configuration
 
-### Windows (.env file - Recommended)
+The system uses sensible defaults. Optional customization via environment variables:
+
 ```env
-# Copy .env.example to .env and customize
 COPILOT_ADVISOR_MODEL=llama3:8b
 COPILOT_CHRONICLER_ENABLED=true
-COPILOT_WHISPER_HOST=127.0.0.1
-COPILOT_WHISPER_PORT=9080
-COPILOT_OLLAMA_HOST=127.0.0.1
-COPILOT_OLLAMA_PORT=11434
-```
-
-### Linux (.copilotrc file)
-```bash
-# Copy .copilotrc.example to .copilotrc and customize
-export COPILOT_ADVISOR_MODEL="llama3:8b"
-export COPILOT_CHRONICLER_ENABLED="true"
-export COPILOT_WHISPER_HOST="127.0.0.1"
-export COPILOT_WHISPER_PORT="9080"
+OLLAMA_HOST=127.0.0.1
+OLLAMA_PORT=11434
 ```
 
 ## 🎯 Usage
 
 ### Access Points
-- **HUD Interface**: http://localhost:3118/hud
-- **Whisper Server**: http://127.0.0.1:9080
-- **WebSocket Stream**: ws://127.0.0.1:10080/hot_stream
-- **Cognitive Engine**: ws://127.0.0.1:9082
+- **Frontend HUD**: Launched via `.\start_frontend.ps1`
+- **WebSocket Server**: `ws://localhost:9082`
+- **Backend Status**: Visible in Terminal 1 logs
 
-### Controls
-- **Pause/Resume**: Caps Lock in HUD interface
-- **Stop System**: Ctrl+C in terminal or run `.\stop_native.ps1`
+### Daily Workflow
+```powershell
+# Terminal 1: Backend
+.\start_simple.ps1
+# Wait for: "frontend clients: 1"
 
-### Audio Setup
-1. **Direct Microphone**: Works immediately (captures all system audio)
-2. **VB-Audio Virtual Cable**: Download from [vb-audio.com](https://vb-audio.com/Cable/) for selective audio routing
-
-## 📊 Sprint History & Development
-
-This project follows an agile development approach with documented sprint completions:
-
-- **Sprint 1-2**: Core audio capture and transcription pipeline
-- **Sprint 3-4**: Real-time streaming and performance optimization
-- **Sprint 5-6**: Question detection and LLM integration
-- **Sprint 7-8**: Context management and reliability improvements
-- **Sprint 9**: WebSocket integration and production readiness
-- **Windows Migration**: Native Windows support with enhanced reliability
-
-📚 **Complete documentation**: [Sprint Reports](SPRINT_9_COMPLETION_REPORT.md)
-
-## 🔧 Development
-
-### Local Development
-```bash
-# Backend development
-cd backend
-python brain.py --debug
-
-# Frontend development
-cd frontend
-pnpm dev
-
-# Tauri development
-pnpm tauri dev
+# Terminal 2: Frontend
+.\start_frontend.ps1
+# HUD window appears and connects
 ```
 
-### Testing
-```bash
-# Run system validation
-python sprint_9_validation.py
+### Audio Setup
+1. Install **VB-Audio Virtual Cable** from [vb-audio.com](https://vb-audio.com/Cable/)
+2. Route desired audio to "CABLE Input"
+3. System automatically captures from "CABLE Output"
 
-# Performance testing
+## 🔧 Development & Testing
+
+### Backend Development
+```powershell
+# Test all components
 cd backend
-./run_soak_test.sh
+python test_native_setup.py
+
+# Run backend only
+python brain_native.py --debug
+```
+
+### Frontend Development
+```powershell
+cd frontend
+pnpm tauri dev
 ```
 
 ## 🐛 Troubleshooting
 
-### Windows Issues
-- **Execution Policy**: `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass`
-- **Audio Pipeline**: Test manually with `ffmpeg ... | websocat ...`
-- **Missing CMake**: Install via Chocolatey or cmake.org
-- **Port Conflicts**: Check with `netstat -an | findstr ":9080"`
-  ```powershell
-  # Check all system ports
-  netstat -an | findstr ":9080"   # Whisper HTTP
-  netstat -an | findstr ":10080"  # Whisper WebSocket
-  netstat -an | findstr ":9082"   # Brain WebSocket
-  netstat -an | findstr ":3118"   # Frontend
-  netstat -an | findstr ":11434"  # Ollama
-  ```
+### System Validation
+```powershell
+# Run comprehensive tests
+cd backend
+python test_native_setup.py
+```
 
-### General Issues
-- **Model Download**: Ensure Ollama is running and models are pulled
-- **WebSocket Errors**: Verify all services are started in correct order
-- **Performance**: Use GPU acceleration with CUDA for Whisper
+### Common Issues
+- **Backend not starting**: Check Ollama is running (`ollama serve`)
+- **No audio**: Verify VB-Audio Virtual Cable installation
+- **Frontend won't connect**: Ensure backend started first
+- **Model errors**: Pull required model (`ollama pull llama3:8b`)
 
-📖 **Complete troubleshooting**: [Windows Migration Guide](WINDOWS_MIGRATION_GUIDE.md#troubleshooting)
+## 📁 Project Structure
+
+```
+earshot/
+├── backend/
+│   ├── brain_native.py          # 🧠 Main Python-native engine
+│   ├── test_native_setup.py     # 🧪 System validation
+│   ├── whisper.cpp/             # 🗣️ CLI tools & models
+│   └── requirements.txt         # 📦 Dependencies
+├── frontend/                    # 🎨 Tauri/React HUD
+├── start_simple.ps1            # 🚀 Backend launcher
+├── start_frontend.ps1          # 🖥️ Frontend launcher
+└── NATIVE_ARCHITECTURE_GUIDE.md # 📖 Detailed guide
+```
 
 ## 🤝 Contributing
 
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/amazing-feature`
-3. Commit changes: `git commit -m 'Add amazing feature'`
-4. Push to branch: `git push origin feature/amazing-feature`
-5. Open a Pull Request
+3. Test your changes: `python backend/test_native_setup.py`
+4. Commit changes: `git commit -m 'Add amazing feature'`
+5. Push to branch: `git push origin feature/amazing-feature`
+6. Open a Pull Request
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
 
@@ -224,7 +179,6 @@ This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md
 - [Whisper.cpp](https://github.com/ggerganov/whisper.cpp) for local speech recognition
 - [Ollama](https://ollama.ai/) for local LLM inference
 - [Tauri](https://tauri.app/) for cross-platform desktop applications
-- [websocat](https://github.com/vi/websocat) for WebSocket streaming
 
 ---
 
@@ -232,8 +186,8 @@ This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md
 
 **Ready to enhance your conversations with AI assistance?**
 
-[📖 Read the Windows Guide](WINDOWS_MIGRATION_GUIDE.md) • [🚀 Quick Start](#quick-start) • [💬 Discussions](../../discussions)
+[📖 Architecture Guide](NATIVE_ARCHITECTURE_GUIDE.md) • [🚀 Quick Start](#quick-start) • [🧪 System Test](backend/test_native_setup.py)
 
-*Built with ❤️ for privacy-conscious power users*
+*Built with ❤️ for a robust, Python-native experience*
 
 </div>

@@ -2,14 +2,13 @@
 const nextConfig = {
   reactStrictMode: true,
   output: 'export',
+  trailingSlash: true,
   images: {
     unoptimized: true,
   },
-  // Add basePath configuration
   basePath: '',
-  assetPrefix: '/',
-  
-  // Add webpack configuration for Tauri
+  assetPrefix: '',
+
   webpack: (config, { isServer }) => {
     if (!isServer) {
       config.resolve.fallback = {
