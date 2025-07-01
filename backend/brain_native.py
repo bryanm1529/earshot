@@ -11,8 +11,6 @@ import re
 import time
 import logging
 import os
-import tempfile
-import wave
 from collections import deque
 from dataclasses import dataclass
 from typing import Optional, Dict, Any, Set
@@ -45,7 +43,7 @@ class CognitiveConfig:
 
     # Whisper CLI configuration
     whisper_model: str = "whisper.cpp/models/for-tests-ggml-tiny.en.bin"
-    whisper_executable: str = "whisper.cpp/build/bin/Release/whisper-cli.exe"
+    whisper_executable: str = "whisper.cpp/build/bin/Release/whisper-stream-stdin.exe"
     whisper_threads: int = 4
 
     # Chronicler settings
@@ -386,21 +384,18 @@ class AudioPipeline:
     def __init__(self, config: CognitiveConfig):
         self.config = config
         self.ffmpeg_proc = None
+        self.whisper_proc = None
         self.running = False
 
-        # Audio buffer for accumulating samples
-        self.audio_buffer = bytearray()
-        self.chunk_size = 1024 * 16  # 16KB chunks for processing
-
-        logger.info("Audio Pipeline initialized (Python-native)")
+        logger.info("Audio Pipeline initialized (Python-native streaming)")
 
     async def start_pipeline(self, transcript_callback):
-        """Start the ffmpeg -> whisper pipeline"""
+        """Start the ffmpeg -> whisper-stream-stdin pipeline"""
         self.running = True
         self.transcript_callback = transcript_callback
 
         try:
-            # Step 1: Create ffmpeg command to capture audio and output raw PCM
+            # Create ffmpeg command to capture audio and output raw PCM
             ffmpeg_cmd = [
                 "ffmpeg",
                 "-f", "dshow",
@@ -412,7 +407,18 @@ class AudioPipeline:
                 "-"  # Output to stdout
             ]
 
-            logger.info(f"🎙️ Starting audio capture: {' '.join(ffmpeg_cmd)}")
+            # Create whisper-stream-stdin command
+            whisper_cmd = [
+                self.config.whisper_executable,
+                "-m", self.config.whisper_model,
+                "-t", str(self.config.whisper_threads),
+                "-l", "en",
+                "--no-timestamps"
+            ]
+
+            logger.info(f"🎙️ Starting direct audio pipeline:")
+            logger.info(f"  FFmpeg: {' '.join(ffmpeg_cmd)}")
+            logger.info(f"  Whisper: {' '.join(whisper_cmd)}")
 
             # Start ffmpeg process
             self.ffmpeg_proc = await asyncio.create_subprocess_exec(
@@ -421,114 +427,57 @@ class AudioPipeline:
                 stderr=asyncio.subprocess.PIPE
             )
 
-            # Process audio in chunks
-            await self._process_audio_chunks()
+            # Start whisper process with ffmpeg stdout as stdin
+            self.whisper_proc = await asyncio.create_subprocess_exec(
+                *whisper_cmd,
+                stdin=self.ffmpeg_proc.stdout,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+
+            # Process transcription output
+            await self._process_whisper_output()
 
         except Exception as e:
             logger.error(f"Pipeline error: {e}")
             await self.stop_pipeline()
 
-    async def _process_audio_chunks(self):
-        """Process audio data in chunks using temporary files"""
-        chunk_counter = 0
+    async def _process_whisper_output(self):
+        """Process real-time transcription output from whisper-stream-stdin"""
+        try:
+            while self.running and self.whisper_proc:
+                # Read line from whisper output
+                line = await self.whisper_proc.stdout.readline()
 
-        while self.running and self.ffmpeg_proc:
-            try:
-                # Read audio chunk from ffmpeg
-                chunk = await self.ffmpeg_proc.stdout.read(self.chunk_size)
-                if not chunk:
-                    logger.warning("No more audio data from ffmpeg")
+                if not line:
+                    logger.warning("No more output from whisper")
                     break
 
-                self.audio_buffer.extend(chunk)
+                transcript = line.decode('utf-8').strip()
 
-                # Process accumulated buffer when we have enough data (2 seconds worth)
-                samples_needed = self.config.sample_rate * 2 * 2  # 2 seconds * 2 bytes per sample
-
-                if len(self.audio_buffer) >= samples_needed:
-                    chunk_counter += 1
-                    await self._process_audio_buffer(chunk_counter)
-
-                    # Keep last 1 second for continuity
-                    overlap_size = self.config.sample_rate * 2
-                    self.audio_buffer = self.audio_buffer[-overlap_size:]
-
-            except Exception as e:
-                if self.running:
-                    logger.error(f"Error processing audio chunk: {e}")
-                break
-
-    async def _process_audio_buffer(self, chunk_id: int):
-        """Process accumulated audio buffer with whisper"""
-        try:
-            # Create temporary WAV file
-            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
-                temp_filename = temp_file.name
-
-                # Write WAV header and data
-                with wave.open(temp_filename, 'wb') as wav_file:
-                    wav_file.setnchannels(self.config.channels)
-                    wav_file.setsampwidth(2)  # 16-bit
-                    wav_file.setframerate(self.config.sample_rate)
-                    wav_file.writeframes(self.audio_buffer)
-
-            # Process with whisper
-            await self._run_whisper_on_file(temp_filename, chunk_id)
-
-            # Clean up
-            os.unlink(temp_filename)
+                # Skip empty lines and common whisper artifacts
+                if transcript and transcript not in ['[BLANK_AUDIO]', '']:
+                    await self.transcript_callback(transcript)
+                    logger.info(f"📝 Real-time transcript: {transcript}")
 
         except Exception as e:
-            logger.error(f"Error processing audio buffer: {e}")
-
-    async def _run_whisper_on_file(self, audio_file: str, chunk_id: int):
-        """Run whisper CLI on audio file"""
-        try:
-            whisper_cmd = [
-                self.config.whisper_executable,
-                "-m", self.config.whisper_model,
-                "-l", "en",
-                "-t", str(self.config.whisper_threads),
-                "--no-timestamps",
-                "--output-txt",
-                "--no-prints",
-                audio_file
-            ]
-
-            logger.debug(f"Running whisper on chunk {chunk_id}")
-
-            # Run whisper
-            proc = await asyncio.create_subprocess_exec(
-                *whisper_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-
-            stdout, stderr = await proc.communicate()
-
-            if proc.returncode == 0:
-                # Whisper saves output to [filename].txt
-                output_file = audio_file + ".txt"
-                if os.path.exists(output_file):
-                    with open(output_file, 'r', encoding='utf-8') as f:
-                        transcript = f.read().strip()
-
-                    os.unlink(output_file)  # Clean up
-
-                    if transcript and transcript != '[BLANK_AUDIO]':
-                        await self.transcript_callback(transcript)
-                else:
-                    logger.debug(f"No transcript output for chunk {chunk_id}")
-            else:
-                logger.warning(f"Whisper failed for chunk {chunk_id}: {stderr.decode()}")
-
-        except Exception as e:
-            logger.error(f"Error running whisper: {e}")
+            if self.running:
+                logger.error(f"Error processing whisper output: {e}")
 
     async def stop_pipeline(self):
         """Stop the audio pipeline"""
         self.running = False
 
+        # Stop whisper process first
+        if self.whisper_proc:
+            try:
+                self.whisper_proc.terminate()
+                await self.whisper_proc.wait()
+            except:
+                pass
+            self.whisper_proc = None
+
+        # Stop ffmpeg process
         if self.ffmpeg_proc:
             try:
                 self.ffmpeg_proc.terminate()
