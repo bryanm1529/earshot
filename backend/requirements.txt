@@ -1,5 +1,5 @@
-pydantic==2.11.3
-pydantic-ai==0.0.19
+pydantic==2.10.6
+# git+https://github.com/pydantic/pydantic-ai.git@v0.3.5#egg=pydantic-ai
 pandas==2.2.3
 devtools==0.12.2
 python-dotenv==1.1.0

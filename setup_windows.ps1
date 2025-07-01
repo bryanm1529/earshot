@@ -12,14 +12,14 @@ if (-not ((Test-Path ".\backend") -and (Test-Path ".\frontend"))) {
 
 # 2) Check Python 3.10+
 Write-Host "Checking Python..."
-if (-not (python --version 2>$null)) {
+if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
     Write-Error "ERROR: Python 3.10+ not found in PATH."
     exit 1
 }
 
 # 3) Check Node.js & pnpm
 Write-Host "Checking Node.js + pnpm..."
-if (-not (node --version 2>$null)) {
+if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
     Write-Error "ERROR: Node.js LTS not found."
     exit 1
 }
