@@ -98,9 +98,9 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
         <div className="flex items-center justify-between">
           {/* Status Indicator */}
           <div className="flex items-center space-x-4">
-            <div className={`glass-status-dot ${
+            <div className={`status-dot ${
               isConnected ? (isPaused ? 'status-warning' : 'status-connected') : 'status-disconnected'
-            } animate-pulse-glow`} />
+            } animate-glow`} />
 
             <div className="flex items-center space-x-3">
               {isConnected ? (
@@ -110,10 +110,10 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
               )}
 
               <div className="flex flex-col">
-                <span className="text-white/90 text-sm font-medium">
+                <span className="text-primary text-sm font-medium">
                   {backendStatus}
                 </span>
-                <span className="text-white/60 text-xs">
+                <span className="text-secondary text-xs">
                   {isPaused ? '⏸ Paused' : isConnected ? '🔴 Live' : '⚠️ Offline'}
                 </span>
               </div>
@@ -141,10 +141,10 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
           {isConnected && (
             <button
               onClick={togglePause}
-              className={`glass-button px-4 py-2 ${
+              className={`btn ${
                 isPaused
-                  ? 'glass-button-success'
-                  : 'glass-button-warning'
+                  ? 'btn-success'
+                  : 'btn-glass'
               }`}
             >
               <span className="flex items-center space-x-2">
@@ -166,16 +166,16 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
       </div>
 
       {/* Info Panel */}
-      <div className="glass-card bg-white/5 p-4">
+      <div className="glass-card p-4">
         <div className="flex items-center space-x-3">
           <div className="text-blue-400 text-lg">
             {isConnected ? '🤖' : '⚠️'}
           </div>
           <div className="flex-1">
-            <p className="text-white/90 text-sm font-medium mb-1">
+            <p className="text-primary text-sm font-medium mb-1">
               {isConnected ? 'Automated Processing' : 'Connection Required'}
             </p>
-            <p className="text-white/60 text-xs leading-relaxed">
+            <p className="text-secondary text-xs leading-relaxed">
               {isConnected
                 ? 'Python backend is handling audio processing automatically. Real-time transcription and AI assistance are active.'
                 : 'Waiting for Python backend connection. Check that brain_native.py is running.'
@@ -185,7 +185,7 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
 
           {/* Connection indicator */}
           <div className="flex flex-col items-center space-y-1">
-            <div className={`w-8 h-8 rounded-full backdrop-blur-xl border transition-all duration-300 ${
+            <div className={`w-8 h-8 rounded-full backdrop-blur-lg border transition-all duration-300 ${
               isConnected
                 ? 'bg-green-500/20 border-green-400/50 shadow-lg shadow-green-400/30'
                 : 'bg-red-500/20 border-red-400/50 shadow-lg shadow-red-400/30'
@@ -196,7 +196,7 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
                 <WifiOff className="w-4 h-4 text-red-400 m-2" />
               )}
             </div>
-            <span className="text-xs text-white/50 font-mono">
+            <span className="text-xs text-tertiary font-mono">
               {isConnected ? 'WS' : 'OFF'}
             </span>
           </div>

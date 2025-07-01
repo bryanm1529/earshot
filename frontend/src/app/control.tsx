@@ -137,39 +137,39 @@ export default function ControlPanel() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-6">
-      <div className="max-w-md mx-auto space-y-6">
+    <div className="min-h-screen p-6 flex items-center justify-center">
+      <div className="max-w-md w-full space-y-6 animate-float">
         {/* Header */}
         <div className="text-center">
-          <h1 className="text-2xl font-bold mb-2">Earshot Copilot</h1>
-          <p className="text-gray-400">AI-Powered Real-time Assistant</p>
+          <h1 className="text-2xl font-bold text-primary mb-2">Earshot Copilot</h1>
+          <p className="text-secondary">AI-Powered Real-time Assistant</p>
         </div>
 
         {/* Connection Status */}
-        <div className="bg-gray-800 rounded-lg p-4">
+        <div className="glass-card p-4">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-sm font-medium">Python Backend</span>
-            <div className={`w-3 h-3 rounded-full ${stats.isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
+            <span className="text-sm font-medium text-primary">Python Backend</span>
+            <div className={`status-dot ${stats.isConnected ? 'status-connected' : 'status-disconnected'} animate-glow`} />
           </div>
-          <div className="text-xs text-gray-400">
+          <div className="text-xs text-secondary">
             {stats.backendStatus}
           </div>
           {connectionError && (
-            <div className="text-xs text-red-400 mt-2">
+            <div className="text-xs text-red-300 mt-2 glass-card p-2 bg-red-500/10 border border-red-500/20">
               {connectionError}
             </div>
           )}
         </div>
 
         {/* HUD Controls */}
-        <div className="bg-gray-800 rounded-lg p-4">
-          <h3 className="text-sm font-medium mb-3">HUD Display</h3>
+        <div className="glass-card p-4">
+          <h3 className="text-sm font-medium text-primary mb-3">HUD Display</h3>
           <button
             onClick={toggleHud}
-            className={`w-full py-2 px-4 rounded-md font-medium transition-colors ${
+            className={`w-full py-2 btn ${
               isHudVisible
-                ? 'bg-blue-600 hover:bg-blue-700'
-                : 'bg-gray-700 hover:bg-gray-600'
+                ? 'btn-primary'
+                : 'btn-glass'
             }`}
           >
             {isHudVisible ? 'Hide HUD' : 'Show HUD'}
@@ -178,45 +178,45 @@ export default function ControlPanel() {
 
         {/* Performance Stats */}
         {stats.isConnected && (
-          <div className="bg-gray-800 rounded-lg p-4">
-            <h3 className="text-sm font-medium mb-3">Live Stats</h3>
+          <div className="glass-card p-4">
+            <h3 className="text-sm font-medium text-primary mb-3">Live Stats</h3>
             <div className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <div className="text-gray-400">Status</div>
-                <div className="font-mono text-green-400">Active</div>
+              <div className="glass-card p-3">
+                <div className="text-tertiary text-xs uppercase tracking-wide">Status</div>
+                <div className="font-mono text-green-400 font-medium">Active</div>
               </div>
-              <div>
-                <div className="text-gray-400">Backend</div>
-                <div className="font-mono text-xs">Python-Native</div>
+              <div className="glass-card p-3">
+                <div className="text-tertiary text-xs uppercase tracking-wide">Backend</div>
+                <div className="font-mono text-blue-400 text-xs">Python-Native</div>
               </div>
             </div>
           </div>
         )}
 
         {/* Quick Settings */}
-        <div className="bg-gray-800 rounded-lg p-4">
-          <h3 className="text-sm font-medium mb-3">Quick Settings</h3>
-          <div className="space-y-2 text-sm">
-            <label className="flex items-center">
-              <input type="checkbox" className="mr-2" defaultChecked />
-              Show AI responses
+        <div className="glass-card p-4">
+          <h3 className="text-sm font-medium text-primary mb-3">Quick Settings</h3>
+          <div className="space-y-3 text-sm">
+            <label className="flex items-center cursor-pointer group">
+              <input type="checkbox" className="mr-3" defaultChecked />
+              <span className="text-secondary group-hover:text-primary transition-colors">Show AI responses</span>
             </label>
-            <label className="flex items-center">
-              <input type="checkbox" className="mr-2" defaultChecked />
-              Auto-fade old text
+            <label className="flex items-center cursor-pointer group">
+              <input type="checkbox" className="mr-3" defaultChecked />
+              <span className="text-secondary group-hover:text-primary transition-colors">Auto-fade old text</span>
             </label>
-            <label className="flex items-center">
-              <input type="checkbox" className="mr-2" />
-              Debug mode
+            <label className="flex items-center cursor-pointer group">
+              <input type="checkbox" className="mr-3" />
+              <span className="text-secondary group-hover:text-primary transition-colors">Debug mode</span>
             </label>
           </div>
         </div>
 
         {/* Footer */}
-        <div className="text-center text-xs text-gray-500">
-          <p>Earshot Copilot - Python-Native Architecture</p>
-          <p>Backend: {stats.isConnected ? 'Ready' : 'Connecting...'}</p>
-          <p>WebSocket: {stats.isConnected ? 'ws://localhost:9082' : 'Disconnected'}</p>
+        <div className="text-center text-xs text-tertiary space-y-1">
+          <p className="font-light">Earshot Copilot - Python-Native Architecture</p>
+          <p>Backend: {stats.isConnected ? '🟢 Ready' : '🔴 Connecting...'}</p>
+          <p className="font-mono">WebSocket: {stats.isConnected ? 'ws://localhost:9082 ✓' : 'Disconnected'}</p>
         </div>
       </div>
     </div>

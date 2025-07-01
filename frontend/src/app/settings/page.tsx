@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Bell, User, Lock, Database, Palette, ArrowLeft } from 'lucide-react';
+import { Bell, User, Lock, Database, Palette, ArrowLeft, Mic, Bot } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 export default function SettingsPage() {
@@ -14,57 +14,70 @@ export default function SettingsPage() {
       items: ['Profile', 'Email', 'Password']
     },
     {
+      title: 'AI Assistant',
+      icon: <Bot className="w-5 h-5" />,
+      items: ['Model Selection', 'Response Style', 'API Keys', 'Processing Speed']
+    },
+    {
+      title: 'Audio & Recording',
+      icon: <Mic className="w-5 h-5" />,
+      items: ['Microphone Settings', 'Audio Quality', 'Noise Reduction', 'Hotkeys']
+    },
+    {
       title: 'Notifications',
       icon: <Bell className="w-5 h-5" />,
-      items: ['Email Notifications', 'Push Notifications', 'Meeting Reminders']
+      items: ['System Alerts', 'Connection Status', 'Error Notifications']
     },
     {
       title: 'Privacy',
       icon: <Lock className="w-5 h-5" />,
-      items: ['Data Sharing', 'Meeting Access', 'Recording Settings']
+      items: ['Data Processing', 'Local Storage', 'Audio Privacy']
     },
     {
       title: 'Storage',
       icon: <Database className="w-5 h-5" />,
-      items: ['Storage Usage', 'Auto-delete Settings', 'Backup']
+      items: ['Cache Management', 'Audio Logs', 'Auto-cleanup']
     },
     {
       title: 'Appearance',
       icon: <Palette className="w-5 h-5" />,
-      items: ['Theme', 'Font Size', 'Language']
+      items: ['Theme', 'HUD Settings', 'Font Size', 'Transparency']
     }
   ];
 
   return (
-    <div className="p-8 max-w-4xl mx-auto">
-      <div className="flex items-center gap-4 mb-8">
-        <button 
-          onClick={() => router.back()}
-          className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
-        >
-          <ArrowLeft className="w-5 h-5" />
-          <span>Back</span>
-        </button>
-        <h1 className="text-3xl font-bold">Settings</h1>
-      </div>
-      
-      <div className="space-y-8">
-        {settingsSections.map((section) => (
-          <div key={section.title} className="border rounded-lg p-6">
-            <div className="flex items-center gap-2 mb-4">
-              {section.icon}
-              <h2 className="text-xl font-semibold">{section.title}</h2>
-            </div>
-            <div className="space-y-4">
-              {section.items.map((item) => (
-                <div key={item} className="flex items-center justify-between p-3 hover:bg-gray-50 rounded-md cursor-pointer">
-                  <span>{item}</span>
-                  <button className="text-blue-600 hover:text-blue-800">Configure</button>
+    <div className="min-h-screen p-8">
+      <div className="max-w-4xl mx-auto">
+        <div className="flex items-center gap-4 mb-8">
+          <button
+            onClick={() => router.back()}
+            className="btn-glass p-2 hover-lift"
+          >
+            <ArrowLeft className="w-5 h-5 text-secondary" />
+          </button>
+          <h1 className="text-3xl font-bold text-primary">Settings</h1>
+        </div>
+
+        <div className="space-y-6">
+          {settingsSections.map((section) => (
+            <div key={section.title} className="glass-card p-6">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="text-blue-400">
+                  {section.icon}
                 </div>
-              ))}
+                <h2 className="text-xl font-semibold text-primary">{section.title}</h2>
+              </div>
+              <div className="space-y-3">
+                {section.items.map((item) => (
+                  <div key={item} className="flex items-center justify-between p-3 glass-card hover-lift cursor-pointer">
+                    <span className="text-secondary">{item}</span>
+                    <button className="btn-glass px-3 py-1 text-sm">Configure</button>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
     </div>
   );

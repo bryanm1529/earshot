@@ -137,7 +137,7 @@ export default function HUD() {
   return (
     <div className="w-full h-full relative">
       {/* Main HUD Container */}
-      <div className="w-full h-full backdrop-blur-2xl bg-black/20 border border-white/10 rounded-2xl overflow-hidden shadow-2xl">
+      <div className="w-full h-full glass-card overflow-hidden shadow-2xl">
         {/* Subtle gradient overlay */}
         <div className="absolute inset-0 bg-gradient-to-br from-white/5 via-transparent to-black/10 pointer-events-none" />
 
@@ -145,23 +145,23 @@ export default function HUD() {
         <div className="relative z-10 flex items-center justify-between px-6 py-3 border-b border-white/10 bg-white/5">
           <div className="flex items-center space-x-3">
             <div className={`w-2.5 h-2.5 rounded-full transition-all duration-500 ${
-              connectionStatus === 'connected' ? 'bg-green-400 shadow-lg shadow-green-400/50 animate-pulse-glow' :
+              connectionStatus === 'connected' ? 'bg-green-400 shadow-lg shadow-green-400/50 animate-glow' :
               connectionStatus === 'error' ? 'bg-red-400 shadow-lg shadow-red-400/50 animate-pulse' :
               'bg-gray-400 shadow-lg shadow-gray-400/50'
             }`} />
-            <span className="text-white/90 text-sm font-medium tracking-wide">
+            <span className="text-primary text-sm font-medium tracking-wide">
               {getStatusText()}
             </span>
             {/* Connection attempts indicator */}
             {connectionAttempts > 0 && !isConnected && (
-              <span className="text-white/50 text-xs font-mono">
+              <span className="text-tertiary text-xs font-mono">
                 #{connectionAttempts}
               </span>
             )}
           </div>
 
           <div className="flex items-center space-x-4">
-            <div className="text-white/60 text-xs font-mono">
+            <div className="text-secondary text-xs font-mono">
               {words.length} words
             </div>
             {/* Live indicator */}
@@ -178,7 +178,7 @@ export default function HUD() {
         <div className="relative z-10 p-6 min-h-[80px] flex items-center">
           {words.length === 0 ? (
             <div className="w-full text-center">
-              <div className="text-white/60 text-lg font-light">
+              <div className="text-secondary text-lg font-light">
                 {isPaused ? (
                   <div className="flex items-center justify-center space-x-3">
                     <div className="w-3 h-6 bg-orange-400 rounded-sm animate-pulse" />
@@ -198,7 +198,7 @@ export default function HUD() {
                   </div>
                 )}
               </div>
-              <div className="mt-3 text-white/40 text-sm">
+              <div className="mt-3 text-tertiary text-sm">
                 Press <kbd className="px-2 py-1 bg-white/10 rounded text-xs font-mono">Caps Lock</kbd> to pause/resume
               </div>
             </div>
@@ -211,7 +211,7 @@ export default function HUD() {
                     text-xl font-medium transition-all duration-700 ease-out transform
                     ${getConfidenceStyle(word.confidence)}
                     ${getWordScale(word)}
-                    animate-in slide-in-from-bottom-2 fade-in
+                    animate-slide-in-up
                   `}
                   style={{
                     opacity: getWordOpacity(word),
@@ -221,7 +221,7 @@ export default function HUD() {
                 >
                   {word.word}
                   {word.confidence < 0.7 && (
-                    <sup className="text-xs text-white/50 ml-1 font-mono">
+                    <sup className="text-xs text-tertiary ml-1 font-mono">
                       {Math.round(word.confidence * 100)}%
                     </sup>
                   )}
@@ -241,7 +241,7 @@ export default function HUD() {
                 <div className="w-1 h-4 bg-gradient-to-t from-blue-500 to-purple-500 rounded-full animate-pulse" style={{ animationDelay: '200ms' }} />
                 <div className="w-1 h-5 bg-gradient-to-t from-blue-500 to-purple-500 rounded-full animate-pulse" style={{ animationDelay: '400ms' }} />
               </div>
-              <span className="text-white/50 text-xs font-medium">Processing</span>
+              <span className="text-tertiary text-xs font-medium">Processing</span>
             </div>
           )}
 
@@ -257,7 +257,7 @@ export default function HUD() {
           )}
 
           {/* Branding */}
-          <div className="text-white/30 text-xs font-light tracking-wide">
+          <div className="text-tertiary text-xs font-light tracking-wide">
             Earshot Copilot
           </div>
         </div>

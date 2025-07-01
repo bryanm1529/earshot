@@ -1,6 +1,7 @@
 {
     "cmake.sourceDirectory": "C:/Users/bryan/earshot/backend/whisper-custom/server",
     "cSpell.words": [
+        "groq",
         "Ollama",
         "tauri",
         "venv",

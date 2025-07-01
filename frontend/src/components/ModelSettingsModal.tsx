@@ -171,28 +171,28 @@ export function ModelSettingsModal({
   if (!showModelSettings) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-semibold text-gray-900">Model Settings</h3>
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="glass-card p-6 max-w-md w-full mx-4 animate-slide-in-up">
+        <div className="flex justify-between items-center mb-6">
+          <h3 className="text-lg font-semibold text-primary">Model Settings</h3>
           <button
             onClick={() => setShowModelSettings(false)}
-            className="text-gray-500 hover:text-gray-700"
+            className="btn-glass p-2 hover-lift"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-secondary" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
 
-        <div className="space-y-4">
+        <div className="space-y-6">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-primary mb-2">
               Summarization Model
             </label>
             <div className="flex space-x-2">
               <select
-                className="px-3 py-2 text-sm bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                className="px-3 py-2 text-sm glass-card border-0 text-primary bg-transparent focus:outline-none focus:ring-2 focus:ring-blue-400/50 rounded-lg"
                 value={modelConfig.provider}
                 onChange={(e) => {
                   const provider = e.target.value as ModelConfig['provider'];
@@ -211,7 +211,7 @@ export function ModelSettingsModal({
               </select>
 
               <select
-                className="flex-1 px-3 py-2 text-sm bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                className="flex-1 px-3 py-2 text-sm glass-card border-0 text-primary bg-transparent focus:outline-none focus:ring-2 focus:ring-blue-400/50 rounded-lg"
                 value={modelConfig.model}
                 onChange={(e) => setModelConfig((prev: ModelConfig) => ({ ...prev, model: e.target.value }))}
               >
@@ -226,7 +226,7 @@ export function ModelSettingsModal({
 
           {requiresApiKey && (
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
+              <label className="block text-sm font-medium text-primary mb-2">
                 API Key
               </label>
               <div className="relative">
@@ -235,25 +235,23 @@ export function ModelSettingsModal({
                   value={apiKey}
                   onChange={(e) => setApiKey(e.target.value)}
                   disabled={isApiKeyLocked}
-                  className={`w-full px-3 py-2 text-sm bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 pr-24 ${
-                    isApiKeyLocked ? 'bg-gray-100 cursor-not-allowed' : ''
+                  className={`w-full px-3 py-2 text-sm glass-card border-0 text-primary bg-transparent focus:outline-none focus:ring-2 focus:ring-blue-400/50 rounded-lg pr-24 ${
+                    isApiKeyLocked ? 'opacity-50 cursor-not-allowed' : ''
                   }`}
                   placeholder="Enter your API key"
                 />
                 {isApiKeyLocked && (
-                  <div 
+                  <div
                     onClick={handleInputClick}
-                    className="absolute inset-0 flex items-center justify-center bg-gray-100 bg-opacity-50 rounded-md cursor-not-allowed"
+                    className="absolute inset-0 flex items-center justify-center bg-white/5 rounded-lg cursor-not-allowed"
                   />
-                    
-                  
                 )}
                 <div className="absolute inset-y-0 right-0 pr-3 flex items-center space-x-2">
                   <button
                     type="button"
                     onClick={() => setIsApiKeyLocked(!isApiKeyLocked)}
-                    className={`text-gray-500 hover:text-gray-700 transition-colors duration-200 ${
-                      isLockButtonVibrating ? 'animate-vibrate text-red-500' : ''
+                    className={`text-secondary hover:text-primary transition-colors duration-200 ${
+                      isLockButtonVibrating ? 'animate-pulse text-red-400' : ''
                     }`}
                     title={isApiKeyLocked ? "Unlock to edit" : "Lock to prevent editing"}
                   >
@@ -263,14 +261,14 @@ export function ModelSettingsModal({
                       </svg>
                     ) : (
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2 2v6a2 2 0 002 2z" />
                       </svg>
                     )}
                   </button>
                   <button
                     type="button"
                     onClick={() => setShowApiKey(!showApiKey)}
-                    className="text-gray-500 hover:text-gray-700"
+                    className="text-secondary hover:text-primary transition-colors"
                   >
                     {showApiKey ? (
                       <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -290,24 +288,24 @@ export function ModelSettingsModal({
 
           {modelConfig.provider === 'ollama' && (
             <div>
-              <h4 className="text-lg font-bold mb-4">Available Ollama Models</h4>
+              <h4 className="text-lg font-semibold text-primary mb-4">Available Ollama Models</h4>
               {error && (
-                <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-                  {error}
+                <div className="glass-card p-4 mb-4 border border-red-400/30 bg-red-500/10">
+                  <p className="text-red-300 text-sm">{error}</p>
                 </div>
               )}
-              <div className="grid gap-4 max-h-[400px] overflow-y-auto pr-2">
+              <div className="grid gap-3 max-h-[300px] overflow-y-auto pr-2">
                 {models.map((model) => (
-                  <div 
+                  <div
                     key={model.id}
-                    className={`bg-white p-4 rounded-lg shadow cursor-pointer transition-colors ${
-                      modelConfig.model === model.name ? 'ring-2 ring-blue-500 bg-blue-50' : 'hover:bg-gray-50'
+                    className={`glass-card p-4 cursor-pointer transition-all hover-lift ${
+                      modelConfig.model === model.name ? 'ring-2 ring-blue-400/50 bg-blue-500/20' : ''
                     }`}
                     onClick={() => setModelConfig((prev: ModelConfig) => ({ ...prev, model: model.name }))}
                   >
-                    <h3 className="font-bold">{model.name}</h3>
-                    <p className="text-gray-600">Size: {model.size}</p>
-                    <p className="text-gray-600">Modified: {model.modified}</p>
+                    <h3 className="font-semibold text-primary">{model.name}</h3>
+                    <p className="text-secondary text-sm">Size: {model.size}</p>
+                    <p className="text-tertiary text-xs">Modified: {model.modified}</p>
                   </div>
                 ))}
               </div>
@@ -315,14 +313,14 @@ export function ModelSettingsModal({
           )}
         </div>
 
-        <div className="mt-6 flex justify-end">
+        <div className="mt-8 flex justify-end">
           <button
             onClick={handleSave}
             disabled={isDoneDisabled}
-            className={`px-4 py-2 text-sm font-medium text-white rounded-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 ${
-              isDoneDisabled 
-                ? 'bg-gray-400 cursor-not-allowed' 
-                : 'bg-blue-600 hover:bg-blue-700'
+            className={`btn ${
+              isDoneDisabled
+                ? 'btn-glass opacity-50 cursor-not-allowed'
+                : 'btn-primary'
             }`}
           >
             Done
@@ -331,4 +329,4 @@ export function ModelSettingsModal({
       </div>
     </div>
   );
-} 
+}

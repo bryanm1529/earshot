@@ -159,13 +159,13 @@ export default function ControlPanel() {
         {/* Header */}
         <div className="text-center mb-8">
           <div className="relative">
-            <h1 className="text-4xl font-light text-white/90 mb-2 tracking-tight">
+            <h1 className="text-4xl font-light text-primary mb-2 tracking-tight">
               Earshot
             </h1>
             <div className="text-lg font-medium bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
               Copilot
             </div>
-            <p className="text-white/60 text-sm mt-3 font-light">
+            <p className="text-secondary text-sm mt-3 font-light">
               AI-Powered Real-time Assistant
             </p>
           </div>
@@ -175,14 +175,14 @@ export default function ControlPanel() {
         <div className="glass-card p-6">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center space-x-3">
-              <div className={`glass-status-dot ${stats.isConnected ? 'status-connected' : 'status-disconnected'} animate-pulse-glow`} />
-              <span className="text-white/90 font-medium">Python Backend</span>
+              <div className={`status-dot ${stats.isConnected ? 'status-connected' : 'status-disconnected'} animate-glow`} />
+              <span className="text-primary font-medium">Python Backend</span>
             </div>
-            <div className="text-xs text-white/50 font-mono">
+            <div className="text-xs text-tertiary font-mono">
               {stats.isConnected ? 'ONLINE' : 'OFFLINE'}
             </div>
           </div>
-          <div className="text-sm text-white/70 mb-2">
+          <div className="text-sm text-secondary mb-2">
             {stats.backendStatus}
           </div>
           {connectionError && (
@@ -196,14 +196,14 @@ export default function ControlPanel() {
         <div className="glass-card p-6">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center space-x-3">
-              <div className={`glass-status-dot ${stats.isConnected ? 'status-connected' : 'status-warning'}`} />
-              <span className="text-white/90 font-medium">Audio Processing</span>
+              <div className={`status-dot ${stats.isConnected ? 'status-connected' : 'status-warning'}`} />
+              <span className="text-primary font-medium">Audio Processing</span>
             </div>
-            <div className="text-xs px-2 py-1 rounded-full bg-white/10 text-white/70 font-mono">
+            <div className="text-xs px-2 py-1 rounded-full bg-white/10 text-secondary font-mono">
               {stats.isConnected ? 'ACTIVE' : 'STANDBY'}
             </div>
           </div>
-          <div className="text-sm text-white/70">
+          <div className="text-sm text-secondary">
             {stats.isConnected ?
               '✨ Audio pipeline active (Python-native)' :
               '⏳ Waiting for backend connection'
@@ -213,13 +213,13 @@ export default function ControlPanel() {
 
         {/* HUD Controls */}
         <div className="glass-card p-6">
-          <h3 className="text-white/90 font-medium mb-4">HUD Display</h3>
+          <h3 className="text-primary font-medium mb-4">HUD Display</h3>
           <button
             onClick={toggleHud}
-            className={`w-full py-3 rounded-xl font-medium transition-all duration-300 ${
+            className={`w-full py-3 btn ${
               isHudVisible
-                ? 'glass-button-primary transform scale-105'
-                : 'glass-button'
+                ? 'btn-primary transform scale-105'
+                : 'btn-glass'
             }`}
           >
             <span className="flex items-center justify-center space-x-2">
@@ -230,12 +230,12 @@ export default function ControlPanel() {
 
         {/* System Controls */}
         <div className="glass-card p-6">
-          <h3 className="text-white/90 font-medium mb-4">System Control</h3>
+          <h3 className="text-primary font-medium mb-4">System Control</h3>
           <div className="grid grid-cols-2 gap-3">
             <button
               onClick={pauseSystem}
               disabled={!stats.isConnected}
-              className="glass-button-warning py-3 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="btn btn-glass py-3 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <span className="flex items-center justify-center space-x-2">
                 <span>⏸</span>
@@ -245,7 +245,7 @@ export default function ControlPanel() {
             <button
               onClick={resumeSystem}
               disabled={!stats.isConnected}
-              className="glass-button-success py-3 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="btn btn-success py-3 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <span className="flex items-center justify-center space-x-2">
                 <span>▶️</span>
@@ -254,12 +254,12 @@ export default function ControlPanel() {
             </button>
           </div>
 
-          <div className="mt-4 p-4 glass-card bg-white/5">
+          <div className="mt-4 p-4 glass-card">
             <div className="flex items-start space-x-3">
               <div className="text-blue-400 text-lg">ℹ️</div>
               <div>
-                <p className="text-white/80 text-sm font-medium mb-1">Auto Processing</p>
-                <p className="text-white/60 text-xs leading-relaxed">
+                <p className="text-primary text-sm font-medium mb-1">Auto Processing</p>
+                <p className="text-secondary text-xs leading-relaxed">
                   The Python backend handles all audio processing automatically. Use pause/resume to control the system.
                 </p>
               </div>
@@ -270,14 +270,14 @@ export default function ControlPanel() {
         {/* Performance Stats */}
         {stats.isConnected && (
           <div className="glass-card p-6">
-            <h3 className="text-white/90 font-medium mb-4">System Stats</h3>
+            <h3 className="text-primary font-medium mb-4">System Stats</h3>
             <div className="grid grid-cols-2 gap-4">
-              <div className="glass-card bg-white/5 p-4 text-center">
-                <div className="text-white/60 text-xs uppercase tracking-wide mb-1">Status</div>
+              <div className="glass-card p-4 text-center">
+                <div className="text-tertiary text-xs uppercase tracking-wide mb-1">Status</div>
                 <div className="text-green-400 font-mono font-medium">Active</div>
               </div>
-              <div className="glass-card bg-white/5 p-4 text-center">
-                <div className="text-white/60 text-xs uppercase tracking-wide mb-1">Pipeline</div>
+              <div className="glass-card p-4 text-center">
+                <div className="text-tertiary text-xs uppercase tracking-wide mb-1">Pipeline</div>
                 <div className="text-blue-400 font-mono text-sm">Python-Native</div>
               </div>
             </div>
@@ -286,25 +286,25 @@ export default function ControlPanel() {
 
         {/* Quick Settings */}
         <div className="glass-card p-6">
-          <h3 className="text-white/90 font-medium mb-4">Display Settings</h3>
+          <h3 className="text-primary font-medium mb-4">Display Settings</h3>
           <div className="space-y-3">
             <label className="flex items-center space-x-3 cursor-pointer group">
-              <input type="checkbox" className="w-4 h-4 rounded border-white/20 bg-white/10 text-blue-500 focus:ring-blue-500/50" defaultChecked />
-              <span className="text-white/80 text-sm group-hover:text-white transition-colors">Show AI responses</span>
+              <input type="checkbox" defaultChecked />
+              <span className="text-secondary text-sm group-hover:text-primary transition-colors">Show AI responses</span>
             </label>
             <label className="flex items-center space-x-3 cursor-pointer group">
-              <input type="checkbox" className="w-4 h-4 rounded border-white/20 bg-white/10 text-blue-500 focus:ring-blue-500/50" defaultChecked />
-              <span className="text-white/80 text-sm group-hover:text-white transition-colors">Auto-fade old text</span>
+              <input type="checkbox" defaultChecked />
+              <span className="text-secondary text-sm group-hover:text-primary transition-colors">Auto-fade old text</span>
             </label>
             <label className="flex items-center space-x-3 cursor-pointer group">
-              <input type="checkbox" className="w-4 h-4 rounded border-white/20 bg-white/10 text-blue-500 focus:ring-blue-500/50" />
-              <span className="text-white/80 text-sm group-hover:text-white transition-colors">Debug mode</span>
+              <input type="checkbox" />
+              <span className="text-secondary text-sm group-hover:text-primary transition-colors">Debug mode</span>
             </label>
           </div>
         </div>
 
         {/* Footer */}
-        <div className="text-center text-white/40 text-xs space-y-1 pt-4">
+        <div className="text-center text-tertiary text-xs space-y-1 pt-4">
           <p className="font-light">Earshot Copilot - Python-Native Architecture</p>
           <p>Backend: {stats.isConnected ? '🟢 Ready' : '🔴 Connecting...'}</p>
           <p className="font-mono text-xs">
