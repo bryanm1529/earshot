@@ -1,19 +1,6 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
-
-interface WhisperSegment {
-  text: string;
-  start: number;
-  end: number;
-  confidence?: number;
-}
-
-interface WhisperResponse {
-  segments: WhisperSegment[];
-  buffer_size_ms: number;
-}
 
 interface WhisperConnectionProps {
   isActive: boolean;
@@ -28,88 +15,99 @@ export function WhisperConnection({
   onLatencyUpdate,
   onError
 }: WhisperConnectionProps) {
-  const [systemAudioDevice, setSystemAudioDevice] = useState<string | null>(null);
-  const [isCapturing, setIsCapturing] = useState(false);
+  const [isConnected, setIsConnected] = useState(false);
+  const [backendStatus, setBackendStatus] = useState('Disconnected');
+  const wsRef = useRef<WebSocket | null>(null);
 
-  // Check for system audio device on component mount
   useEffect(() => {
-    checkSystemAudioDevice();
-  }, []);
-
-  // Handle start/stop based on isActive prop
-  useEffect(() => {
-    if (isActive && !isCapturing) {
-      startNativeAudioCapture();
-    } else if (!isActive && isCapturing) {
-      stopNativeAudioCapture();
+    if (isActive) {
+      connectToBackend();
+    } else {
+      disconnectFromBackend();
     }
-  }, [isActive, isCapturing]);
 
-  const checkSystemAudioDevice = async () => {
+    return () => {
+      disconnectFromBackend();
+    };
+  }, [isActive]);
+
+  const connectToBackend = () => {
     try {
-      console.log('Checking for system audio device...');
-      const device = await invoke<string>('check_system_audio_device');
-      console.log('System audio device found:', device);
-      setSystemAudioDevice(device);
+      const ws = new WebSocket('ws://localhost:9082');
+
+      ws.onopen = () => {
+        console.log('WhisperConnection: Connected to Python backend');
+        setIsConnected(true);
+        setBackendStatus('Connected to Cognitive Engine');
+        onLatencyUpdate(50); // Placeholder latency for Python backend
+      };
+
+      ws.onclose = () => {
+        console.log('WhisperConnection: Disconnected from Python backend');
+        setIsConnected(false);
+        setBackendStatus('Disconnected');
+        onError('Backend connection lost');
+      };
+
+      ws.onerror = (error) => {
+        console.error('WhisperConnection WebSocket error:', error);
+        onError('Backend connection failed');
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          handleBackendMessage(data);
+        } catch (error) {
+          console.error('Failed to parse backend message:', error);
+        }
+      };
+
+      wsRef.current = ws;
     } catch (error) {
-      console.error('System audio device not available:', error);
-      const errorMessage = typeof error === 'string' ? error : 'Unknown system audio error';
-      onError(`System audio not available: ${errorMessage}`);
-      setSystemAudioDevice(null);
+      console.error('Failed to connect to backend:', error);
+      onError('Failed to connect to Python backend');
     }
   };
 
-  const startNativeAudioCapture = async () => {
-    if (isCapturing) {
-      console.log('Audio capture already active');
-      return;
-    }
-
-    try {
-      console.log('Starting native system audio capture...');
-      setIsCapturing(true);
-
-      await invoke('start_native_audio_capture');
-      console.log('Native audio capture started successfully');
-
-      // Update latency - native capture should be much faster
-      onLatencyUpdate(50); // Placeholder latency for native capture
-
-    } catch (error) {
-      console.error('Failed to start native audio capture:', error);
-      const errorMessage = typeof error === 'string' ? error : 'Failed to start system audio capture';
-      onError(errorMessage);
-      setIsCapturing(false);
+  const disconnectFromBackend = () => {
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+      setIsConnected(false);
+      setBackendStatus('Disconnected');
     }
   };
 
-  const stopNativeAudioCapture = async () => {
-    if (!isCapturing) {
-      console.log('Audio capture already stopped');
-      return;
-    }
-
-    try {
-      console.log('Stopping native audio capture...');
-      await invoke('stop_native_audio_capture');
-      console.log('Native audio capture stopped successfully');
-      setIsCapturing(false);
-    } catch (error) {
-      console.error('Failed to stop native audio capture:', error);
-      const errorMessage = typeof error === 'string' ? error : 'Failed to stop system audio capture';
-      onError(errorMessage);
-      // Still set to false since we attempted to stop
-      setIsCapturing(false);
+  const handleBackendMessage = (data: any) => {
+    switch (data.type) {
+      case 'status':
+        setBackendStatus(data.message || data.status || 'Connected');
+        break;
+      case 'transcript':
+        // Convert transcript text to words array and call onTranscription
+        if (data.text && data.text.trim()) {
+          const words = data.text.trim().split(' ');
+          const confidence = data.confidence || 0.8;
+          onTranscription(words, confidence);
+        }
+        break;
+      case 'advisor_keywords':
+        // This could be handled here or passed up to parent
+        console.log('Advisor response received:', data.text);
+        break;
+      default:
+        console.log('Unknown message type from backend:', data.type);
     }
   };
 
-  // This component doesn't render anything - it's just for audio processing coordination
+  // This component doesn't render anything visible - it's just for backend communication
   return (
     <div className="hidden">
       {/* Hidden status indicator for debugging */}
       <div className="text-xs text-gray-500">
-        System Audio: {systemAudioDevice || 'Not Available'}
-        {isCapturing && ' (Capturing)'}
+        Python Backend: {backendStatus}
+        {isConnected && ' (Active)'}
       </div>
     </div>
   );

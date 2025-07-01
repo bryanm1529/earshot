@@ -3,55 +3,111 @@
 import { useState, useEffect } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
-import { invoke } from '@tauri-apps/api/core';
-import { WhisperConnection } from '@/components/WhisperConnection';
 
 interface TranscriptionStats {
   isConnected: boolean;
   latency: number;
   wordsPerMinute: number;
   accuracy: number;
-  systemAudioDevice?: string;
+  backendStatus?: string;
 }
 
 export default function ControlPanel() {
   const [isHudVisible, setIsHudVisible] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
   const [stats, setStats] = useState<TranscriptionStats>({
     isConnected: false,
     latency: 0,
     wordsPerMinute: 0,
-    accuracy: 0
+    accuracy: 0,
+    backendStatus: 'Disconnected'
   });
   const [hudWindow, setHudWindow] = useState<WebviewWindow | null>(null);
-  const [systemAudioError, setSystemAudioError] = useState<string | null>(null);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [wsConnection, setWsConnection] = useState<WebSocket | null>(null);
 
+  // Connect to Python backend WebSocket
   useEffect(() => {
-    checkWhisperConnection();
-    checkSystemAudioDevice();
-    const interval = setInterval(checkWhisperConnection, 5000);
-    return () => clearInterval(interval);
+    connectToBackend();
+    return () => {
+      if (wsConnection) {
+        wsConnection.close();
+      }
+    };
   }, []);
 
-  const checkWhisperConnection = async () => {
+  const connectToBackend = () => {
     try {
-      const response = await fetch('http://localhost:8080/');
-      setStats(prev => ({ ...prev, isConnected: response.ok }));
+      const ws = new WebSocket('ws://localhost:9082');
+
+      ws.onopen = () => {
+        console.log('Connected to Python backend');
+        setStats(prev => ({ ...prev, isConnected: true, backendStatus: 'Connected to Cognitive Engine' }));
+        setConnectionError(null);
+      };
+
+      ws.onclose = () => {
+        console.log('Disconnected from Python backend');
+        setStats(prev => ({ ...prev, isConnected: false, backendStatus: 'Disconnected - Check backend' }));
+        setConnectionError('Backend disconnected');
+        // Attempt to reconnect after 3 seconds
+        setTimeout(connectToBackend, 3000);
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        setConnectionError('Backend connection failed');
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          handleBackendMessage(data);
+        } catch (error) {
+          console.error('Failed to parse backend message:', error);
+        }
+      };
+
+      setWsConnection(ws);
     } catch (error) {
-      setStats(prev => ({ ...prev, isConnected: false }));
+      console.error('Failed to connect to backend:', error);
+      setConnectionError('Failed to connect to backend');
+      // Retry connection after 3 seconds
+      setTimeout(connectToBackend, 3000);
     }
   };
 
-  const checkSystemAudioDevice = async () => {
-    try {
-      const device = await invoke<string>('check_system_audio_device');
-      setStats(prev => ({ ...prev, systemAudioDevice: device }));
-      setSystemAudioError(null);
-      console.log('System audio device available:', device);
-    } catch (error) {
-      const errorMessage = typeof error === 'string' ? error : 'Unknown error';
-      setSystemAudioError(errorMessage);
-      console.error('System audio device check failed:', error);
+  const handleBackendMessage = (data: any) => {
+    switch (data.type) {
+      case 'status':
+        setStats(prev => ({
+          ...prev,
+          backendStatus: data.message || data.status || 'Connected'
+        }));
+        break;
+      case 'advisor_keywords':
+        // Forward to HUD if visible
+        if (hudWindow && data.text) {
+          hudWindow.emit('advisor-response', { text: data.text });
+        }
+        console.log('Advisor response:', data.text);
+        break;
+      case 'transcript':
+        // Forward transcription to HUD window
+        if (hudWindow) {
+          hudWindow.emit('transcription-data', {
+            words: data.text?.split(' ') || [],
+            confidence: data.confidence || 0.8
+          });
+        }
+        break;
+      default:
+        console.log('Unknown message type:', data);
+    }
+  };
+
+  const sendToBackend = (data: any) => {
+    if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
+      wsConnection.send(JSON.stringify(data));
     }
   };
 
@@ -89,200 +145,171 @@ export default function ControlPanel() {
     }
   };
 
-    const handleTranscription = (words: string[], confidence: number) => {
-    // Forward transcription to HUD window
-    if (hudWindow) {
-      hudWindow.emit('transcription-data', { words, confidence });
-    }
+  const pauseSystem = () => {
+    sendToBackend({ type: 'pause' });
   };
 
-  const handleLatencyUpdate = (latency: number) => {
-    setStats(prev => ({ ...prev, latency }));
-  };
-
-  const handleTranscriptionError = (error: string) => {
-    console.error('Transcription error:', error);
-    setIsRecording(false);
-  };
-
-  const startRecording = async () => {
-    try {
-      console.log('Starting native system audio capture...');
-
-      // Start native audio capture
-      await invoke('start_native_audio_capture');
-      setIsRecording(true);
-      setSystemAudioError(null);
-
-      // If HUD is visible, notify it to start displaying transcriptions
-      if (hudWindow) {
-        await hudWindow.emit('start-transcription', {});
-      }
-
-      console.log('Native audio capture started successfully');
-    } catch (error) {
-      console.error('Failed to start recording:', error);
-      const errorMessage = typeof error === 'string' ? error : 'Failed to start system audio capture';
-      setSystemAudioError(errorMessage);
-      setIsRecording(false);
-    }
-  };
-
-  const stopRecording = async () => {
-    try {
-      console.log('Stopping native system audio capture...');
-
-      // Stop native audio capture
-      await invoke('stop_native_audio_capture');
-      setIsRecording(false);
-
-      // Notify HUD to stop
-      if (hudWindow) {
-        await hudWindow.emit('stop-transcription', {});
-      }
-
-      console.log('Native audio capture stopped successfully');
-    } catch (error) {
-      console.error('Failed to stop recording:', error);
-      setIsRecording(false); // Set to false regardless
-    }
+  const resumeSystem = () => {
+    sendToBackend({ type: 'resume' });
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white p-6">
-      <div className="max-w-md mx-auto space-y-6">
+    <div className="min-h-screen p-8 flex items-center justify-center">
+      <div className="w-full max-w-md space-y-6 animate-float">
         {/* Header */}
-        <div className="text-center">
-          <h1 className="text-2xl font-bold mb-2">Earshot</h1>
-          <p className="text-gray-400">Real-time System Audio Transcription</p>
+        <div className="text-center mb-8">
+          <div className="relative">
+            <h1 className="text-4xl font-light text-white/90 mb-2 tracking-tight">
+              Earshot
+            </h1>
+            <div className="text-lg font-medium bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+              Copilot
+            </div>
+            <p className="text-white/60 text-sm mt-3 font-light">
+              AI-Powered Real-time Assistant
+            </p>
+          </div>
         </div>
 
-        {/* Connection Status */}
-        <div className="bg-gray-800 rounded-lg p-4">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-sm font-medium">Whisper Backend</span>
-            <div className={`w-3 h-3 rounded-full ${stats.isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
+        {/* Python Backend Status */}
+        <div className="glass-card p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center space-x-3">
+              <div className={`glass-status-dot ${stats.isConnected ? 'status-connected' : 'status-disconnected'} animate-pulse-glow`} />
+              <span className="text-white/90 font-medium">Python Backend</span>
+            </div>
+            <div className="text-xs text-white/50 font-mono">
+              {stats.isConnected ? 'ONLINE' : 'OFFLINE'}
+            </div>
           </div>
-          <div className="text-xs text-gray-400">
-            {stats.isConnected ? 'Connected to localhost:8080' : 'Disconnected - Check backend'}
+          <div className="text-sm text-white/70 mb-2">
+            {stats.backendStatus}
           </div>
+          {connectionError && (
+            <div className="text-xs text-red-300 bg-red-500/10 border border-red-500/20 rounded-lg p-2 mt-2">
+              {connectionError}
+            </div>
+          )}
         </div>
 
-        {/* System Audio Status */}
-        <div className="bg-gray-800 rounded-lg p-4">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-sm font-medium">System Audio Device</span>
-            <div className={`w-3 h-3 rounded-full ${stats.systemAudioDevice ? 'bg-green-500' : 'bg-red-500'}`} />
+        {/* System Status */}
+        <div className="glass-card p-6">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center space-x-3">
+              <div className={`glass-status-dot ${stats.isConnected ? 'status-connected' : 'status-warning'}`} />
+              <span className="text-white/90 font-medium">Audio Processing</span>
+            </div>
+            <div className="text-xs px-2 py-1 rounded-full bg-white/10 text-white/70 font-mono">
+              {stats.isConnected ? 'ACTIVE' : 'STANDBY'}
+            </div>
           </div>
-          {stats.systemAudioDevice ? (
-            <div className="text-xs text-gray-400">
-              ✓ {stats.systemAudioDevice}
-            </div>
-          ) : (
-            <div className="text-xs text-red-400">
-              {systemAudioError || 'No system audio device found'}
-            </div>
-          )}
-          {!stats.systemAudioDevice && (
-            <button
-              onClick={checkSystemAudioDevice}
-              className="mt-2 text-xs bg-blue-600 hover:bg-blue-700 px-2 py-1 rounded"
-            >
-              Retry Detection
-            </button>
-          )}
+          <div className="text-sm text-white/70">
+            {stats.isConnected ?
+              '✨ Audio pipeline active (Python-native)' :
+              '⏳ Waiting for backend connection'
+            }
+          </div>
         </div>
 
         {/* HUD Controls */}
-        <div className="bg-gray-800 rounded-lg p-4">
-          <h3 className="text-sm font-medium mb-3">HUD Display</h3>
+        <div className="glass-card p-6">
+          <h3 className="text-white/90 font-medium mb-4">HUD Display</h3>
           <button
             onClick={toggleHud}
-            className={`w-full py-2 px-4 rounded-md font-medium transition-colors ${
+            className={`w-full py-3 rounded-xl font-medium transition-all duration-300 ${
               isHudVisible
-                ? 'bg-blue-600 hover:bg-blue-700'
-                : 'bg-gray-700 hover:bg-gray-600'
+                ? 'glass-button-primary transform scale-105'
+                : 'glass-button'
             }`}
           >
-            {isHudVisible ? 'Hide HUD' : 'Show HUD'}
+            <span className="flex items-center justify-center space-x-2">
+              <span>{isHudVisible ? '👁️ Hide HUD' : '👁️ Show HUD'}</span>
+            </span>
           </button>
         </div>
 
-        {/* Recording Controls */}
-        <div className="bg-gray-800 rounded-lg p-4">
-          <h3 className="text-sm font-medium mb-3">System Audio Capture</h3>
-          <button
-            onClick={isRecording ? stopRecording : startRecording}
-            disabled={!stats.isConnected || !stats.systemAudioDevice}
-            className={`w-full py-3 px-4 rounded-md font-medium transition-colors ${
-              isRecording
-                ? 'bg-red-600 hover:bg-red-700'
-                : 'bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed'
-            }`}
-          >
-            {isRecording ? '⏹ Stop Capture' : '🎧 Start System Audio Capture'}
-          </button>
+        {/* System Controls */}
+        <div className="glass-card p-6">
+          <h3 className="text-white/90 font-medium mb-4">System Control</h3>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={pauseSystem}
+              disabled={!stats.isConnected}
+              className="glass-button-warning py-3 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <span className="flex items-center justify-center space-x-2">
+                <span>⏸</span>
+                <span>Pause</span>
+              </span>
+            </button>
+            <button
+              onClick={resumeSystem}
+              disabled={!stats.isConnected}
+              className="glass-button-success py-3 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <span className="flex items-center justify-center space-x-2">
+                <span>▶️</span>
+                <span>Resume</span>
+              </span>
+            </button>
+          </div>
 
-          {!stats.isConnected && (
-            <p className="text-xs text-red-400 mt-2">
-              Whisper backend required for transcription
-            </p>
-          )}
-
-          {!stats.systemAudioDevice && (
-            <p className="text-xs text-red-400 mt-2">
-              System audio device required (BlackHole on macOS)
-            </p>
-          )}
-
-          {systemAudioError && (
-            <p className="text-xs text-red-400 mt-2">
-              {systemAudioError}
-            </p>
-          )}
+          <div className="mt-4 p-4 glass-card bg-white/5">
+            <div className="flex items-start space-x-3">
+              <div className="text-blue-400 text-lg">ℹ️</div>
+              <div>
+                <p className="text-white/80 text-sm font-medium mb-1">Auto Processing</p>
+                <p className="text-white/60 text-xs leading-relaxed">
+                  The Python backend handles all audio processing automatically. Use pause/resume to control the system.
+                </p>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Performance Stats */}
-        {isRecording && (
-          <div className="bg-gray-800 rounded-lg p-4">
-            <h3 className="text-sm font-medium mb-3">Live Stats</h3>
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <div className="text-gray-400">Latency</div>
-                <div className="font-mono">{stats.latency}ms</div>
+        {stats.isConnected && (
+          <div className="glass-card p-6">
+            <h3 className="text-white/90 font-medium mb-4">System Stats</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="glass-card bg-white/5 p-4 text-center">
+                <div className="text-white/60 text-xs uppercase tracking-wide mb-1">Status</div>
+                <div className="text-green-400 font-mono font-medium">Active</div>
               </div>
-              <div>
-                <div className="text-gray-400">Audio Source</div>
-                <div className="font-mono text-xs">System</div>
+              <div className="glass-card bg-white/5 p-4 text-center">
+                <div className="text-white/60 text-xs uppercase tracking-wide mb-1">Pipeline</div>
+                <div className="text-blue-400 font-mono text-sm">Python-Native</div>
               </div>
             </div>
           </div>
         )}
 
         {/* Quick Settings */}
-        <div className="bg-gray-800 rounded-lg p-4">
-          <h3 className="text-sm font-medium mb-3">Quick Settings</h3>
-          <div className="space-y-2 text-sm">
-            <label className="flex items-center">
-              <input type="checkbox" className="mr-2" defaultChecked />
-              Show confidence scores
+        <div className="glass-card p-6">
+          <h3 className="text-white/90 font-medium mb-4">Display Settings</h3>
+          <div className="space-y-3">
+            <label className="flex items-center space-x-3 cursor-pointer group">
+              <input type="checkbox" className="w-4 h-4 rounded border-white/20 bg-white/10 text-blue-500 focus:ring-blue-500/50" defaultChecked />
+              <span className="text-white/80 text-sm group-hover:text-white transition-colors">Show AI responses</span>
             </label>
-            <label className="flex items-center">
-              <input type="checkbox" className="mr-2" defaultChecked />
-              Auto-fade old words
+            <label className="flex items-center space-x-3 cursor-pointer group">
+              <input type="checkbox" className="w-4 h-4 rounded border-white/20 bg-white/10 text-blue-500 focus:ring-blue-500/50" defaultChecked />
+              <span className="text-white/80 text-sm group-hover:text-white transition-colors">Auto-fade old text</span>
             </label>
-            <label className="flex items-center">
-              <input type="checkbox" className="mr-2" />
-              Filter low confidence
+            <label className="flex items-center space-x-3 cursor-pointer group">
+              <input type="checkbox" className="w-4 h-4 rounded border-white/20 bg-white/10 text-blue-500 focus:ring-blue-500/50" />
+              <span className="text-white/80 text-sm group-hover:text-white transition-colors">Debug mode</span>
             </label>
           </div>
         </div>
 
         {/* Footer */}
-        <div className="text-center text-xs text-gray-500">
-          <p>Sprint 3: Native System Audio Capture</p>
-          <p>Backend: {stats.isConnected ? 'Ready' : 'Waiting...'}</p>
-          <p>Audio: {stats.systemAudioDevice ? 'Ready' : 'Setup Required'}</p>
+        <div className="text-center text-white/40 text-xs space-y-1 pt-4">
+          <p className="font-light">Earshot Copilot - Python-Native Architecture</p>
+          <p>Backend: {stats.isConnected ? '🟢 Ready' : '🔴 Connecting...'}</p>
+          <p className="font-mono text-xs">
+            {stats.isConnected ? 'ws://localhost:9082 ✓' : 'Connection pending...'}
+          </p>
         </div>
       </div>
     </div>

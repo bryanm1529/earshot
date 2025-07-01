@@ -3,38 +3,102 @@
 import { useState, useEffect } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
-import { invoke } from '@tauri-apps/api/core';
 
 interface TranscriptionStats {
   isConnected: boolean;
   latency: number;
   wordsPerMinute: number;
   accuracy: number;
+  backendStatus?: string;
 }
 
 export default function ControlPanel() {
   const [isHudVisible, setIsHudVisible] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
   const [stats, setStats] = useState<TranscriptionStats>({
     isConnected: false,
     latency: 0,
     wordsPerMinute: 0,
-    accuracy: 0
+    accuracy: 0,
+    backendStatus: 'Disconnected'
   });
   const [hudWindow, setHudWindow] = useState<WebviewWindow | null>(null);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [wsConnection, setWsConnection] = useState<WebSocket | null>(null);
 
+  // Connect to Python backend WebSocket
   useEffect(() => {
-    checkWhisperConnection();
-    const interval = setInterval(checkWhisperConnection, 5000);
-    return () => clearInterval(interval);
+    connectToBackend();
+    return () => {
+      if (wsConnection) {
+        wsConnection.close();
+      }
+    };
   }, []);
 
-  const checkWhisperConnection = async () => {
+  const connectToBackend = () => {
     try {
-      const response = await fetch('http://localhost:8080/');
-      setStats(prev => ({ ...prev, isConnected: response.ok }));
+      const ws = new WebSocket('ws://localhost:9082');
+
+      ws.onopen = () => {
+        console.log('Connected to Python backend');
+        setStats(prev => ({ ...prev, isConnected: true, backendStatus: 'Connected to Python Backend' }));
+        setConnectionError(null);
+      };
+
+      ws.onclose = () => {
+        console.log('Disconnected from Python backend');
+        setStats(prev => ({ ...prev, isConnected: false, backendStatus: 'Disconnected - Check backend' }));
+        setConnectionError('Backend disconnected');
+        // Attempt to reconnect after 3 seconds
+        setTimeout(connectToBackend, 3000);
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        setConnectionError('Backend connection failed');
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          handleBackendMessage(data);
+        } catch (error) {
+          console.error('Failed to parse backend message:', error);
+        }
+      };
+
+      setWsConnection(ws);
     } catch (error) {
-      setStats(prev => ({ ...prev, isConnected: false }));
+      console.error('Failed to connect to backend:', error);
+      setConnectionError('Failed to connect to backend');
+      // Retry connection after 3 seconds
+      setTimeout(connectToBackend, 3000);
+    }
+  };
+
+  const handleBackendMessage = (data: any) => {
+    switch (data.type) {
+      case 'status':
+        setStats(prev => ({
+          ...prev,
+          backendStatus: data.message || data.status || 'Connected'
+        }));
+        break;
+      case 'advisor_keywords':
+        // Forward to HUD if visible
+        if (hudWindow && data.text) {
+          hudWindow.emit('advisor-response', { text: data.text });
+        }
+        console.log('Advisor response:', data.text);
+        break;
+      default:
+        console.log('Unknown message type:', data);
+    }
+  };
+
+  const sendToBackend = (data: any) => {
+    if (wsConnection && wsConnection.readyState === WebSocket.OPEN) {
+      wsConnection.send(JSON.stringify(data));
     }
   };
 
@@ -72,52 +136,29 @@ export default function ControlPanel() {
     }
   };
 
-  const startRecording = async () => {
-    try {
-      // Start audio capture and transcription
-      setIsRecording(true);
-
-      // If HUD is visible, notify it to start displaying transcriptions
-      if (hudWindow) {
-        await hudWindow.emit('start-transcription', {});
-      }
-    } catch (error) {
-      console.error('Failed to start recording:', error);
-      setIsRecording(false);
-    }
-  };
-
-  const stopRecording = async () => {
-    try {
-      setIsRecording(false);
-
-      // Notify HUD to stop
-      if (hudWindow) {
-        await hudWindow.emit('stop-transcription', {});
-      }
-    } catch (error) {
-      console.error('Failed to stop recording:', error);
-    }
-  };
-
   return (
     <div className="min-h-screen bg-gray-900 text-white p-6">
       <div className="max-w-md mx-auto space-y-6">
         {/* Header */}
         <div className="text-center">
-          <h1 className="text-2xl font-bold mb-2">Earshot</h1>
-          <p className="text-gray-400">Real-time Transcription HUD</p>
+          <h1 className="text-2xl font-bold mb-2">Earshot Copilot</h1>
+          <p className="text-gray-400">AI-Powered Real-time Assistant</p>
         </div>
 
         {/* Connection Status */}
         <div className="bg-gray-800 rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-sm font-medium">Whisper Backend</span>
+            <span className="text-sm font-medium">Python Backend</span>
             <div className={`w-3 h-3 rounded-full ${stats.isConnected ? 'bg-green-500' : 'bg-red-500'}`} />
           </div>
           <div className="text-xs text-gray-400">
-            {stats.isConnected ? 'Connected to localhost:8080' : 'Disconnected - Check backend'}
+            {stats.backendStatus}
           </div>
+          {connectionError && (
+            <div className="text-xs text-red-400 mt-2">
+              {connectionError}
+            </div>
+          )}
         </div>
 
         {/* HUD Controls */}
@@ -135,40 +176,18 @@ export default function ControlPanel() {
           </button>
         </div>
 
-        {/* Recording Controls */}
-        <div className="bg-gray-800 rounded-lg p-4">
-          <h3 className="text-sm font-medium mb-3">Transcription</h3>
-          <button
-            onClick={isRecording ? stopRecording : startRecording}
-            disabled={!stats.isConnected}
-            className={`w-full py-3 px-4 rounded-md font-medium transition-colors ${
-              isRecording
-                ? 'bg-red-600 hover:bg-red-700'
-                : 'bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed'
-            }`}
-          >
-            {isRecording ? '⏹ Stop Recording' : '🎤 Start Recording'}
-          </button>
-
-          {!stats.isConnected && (
-            <p className="text-xs text-red-400 mt-2">
-              Whisper backend required for recording
-            </p>
-          )}
-        </div>
-
         {/* Performance Stats */}
-        {isRecording && (
+        {stats.isConnected && (
           <div className="bg-gray-800 rounded-lg p-4">
             <h3 className="text-sm font-medium mb-3">Live Stats</h3>
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
-                <div className="text-gray-400">Latency</div>
-                <div className="font-mono">{stats.latency}ms</div>
+                <div className="text-gray-400">Status</div>
+                <div className="font-mono text-green-400">Active</div>
               </div>
               <div>
-                <div className="text-gray-400">WPM</div>
-                <div className="font-mono">{stats.wordsPerMinute}</div>
+                <div className="text-gray-400">Backend</div>
+                <div className="font-mono text-xs">Python-Native</div>
               </div>
             </div>
           </div>
@@ -180,23 +199,24 @@ export default function ControlPanel() {
           <div className="space-y-2 text-sm">
             <label className="flex items-center">
               <input type="checkbox" className="mr-2" defaultChecked />
-              Show confidence scores
+              Show AI responses
             </label>
             <label className="flex items-center">
               <input type="checkbox" className="mr-2" defaultChecked />
-              Auto-fade old words
+              Auto-fade old text
             </label>
             <label className="flex items-center">
               <input type="checkbox" className="mr-2" />
-              Filter low confidence
+              Debug mode
             </label>
           </div>
         </div>
 
         {/* Footer */}
         <div className="text-center text-xs text-gray-500">
-          <p>Sprint 2: Real-time HUD Implementation</p>
-          <p>Backend: {stats.isConnected ? 'Ready' : 'Waiting...'}</p>
+          <p>Earshot Copilot - Python-Native Architecture</p>
+          <p>Backend: {stats.isConnected ? 'Ready' : 'Connecting...'}</p>
+          <p>WebSocket: {stats.isConnected ? 'ws://localhost:9082' : 'Disconnected'}</p>
         </div>
       </div>
     </div>

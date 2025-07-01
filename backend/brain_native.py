@@ -44,8 +44,8 @@ class CognitiveConfig:
     channels: int = 1
 
     # Whisper CLI configuration
-    whisper_model: str = "backend/whisper.cpp/models/for-tests-ggml-tiny.en.bin"
-    whisper_executable: str = "backend/whisper.cpp/build/bin/Release/whisper-cli.exe"
+    whisper_model: str = "whisper.cpp/models/for-tests-ggml-tiny.en.bin"
+    whisper_executable: str = "whisper.cpp/build/bin/Release/whisper-cli.exe"
     whisper_threads: int = 4
 
     # Chronicler settings
